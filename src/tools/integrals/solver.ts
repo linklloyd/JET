@@ -347,8 +347,8 @@ function solvePowerRule(expr: string, variable: string, steps: IntegralStep[]): 
         const f2 = getFormula(2)
         steps.push({
           label: `Fórmula ${f2.id}: ${f2.name}`,
-          expression: `∫(${formatExpression(term)}) d${variable} → se saca k=${coeff}`,
-          description: `${f2.description}: ∫k·f(u) du = k·∫f(u) du`,
+          expression: `∫(${formatExpression(term)}) d${variable} = ${coeff} · ∫(${variable}^${n}) d${variable}`,
+          description: `Se saca la constante k=${coeff} fuera de la integral: ∫k·f(u) du = k·∫f(u) du`,
         })
       }
 
@@ -395,8 +395,8 @@ function solvePowerRule(expr: string, variable: string, steps: IntegralStep[]): 
         })
         steps.push({
           label: `Integrar: ${formatExpression(term)}`,
-          expression: `n=${n} → (${coeff})·${variable}^(${n}+1)/(${n}+1) = (${coeff})·${variable}^${nPlus1}/${nPlus1} = ${formatExpression(termIntegral)}`,
-          description: `Sustituir n=${n} en la Fórmula 4`,
+          expression: `(${coeff}) · ${variable}^(${nPlus1}) / (${nPlus1}) = ${formatExpression(termIntegral)}`,
+          description: `Sustituir n=${n} en la Fórmula 4: ∫u^n du = u^(n+1)/(n+1)`,
           value: formatExpression(termIntegral),
         })
       }
