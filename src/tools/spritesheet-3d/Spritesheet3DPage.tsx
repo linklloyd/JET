@@ -3,14 +3,14 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
-import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
 import { Slider } from '../../components/ui/Slider'
 import { ProgressBar } from '../../components/ui/ProgressBar'
-import { Play, Pause, Camera, Loader2, ImagePlus, Download, FlipVertical } from 'lucide-react'
+import { Play, Pause, Camera, Loader2, ImagePlus, Download, FlipVertical, Upload, FolderOpen } from 'lucide-react'
 import { downloadBlob, canvasToBlob, fileToDataURL } from '../../lib/utils'
 import { presets, directionLabels } from './presets'
+import { cn } from '../../lib/utils'
 
 export function Spritesheet3DPage() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -25,6 +25,7 @@ export function Spritesheet3DPage() {
   const playingRef = useRef(true)
   const modelUrlRef = useRef<string | null>(null)
   const textureInputRef = useRef<HTMLInputElement>(null)
+  const modelInputRef = useRef<HTMLInputElement>(null)
   const modelFormatRef = useRef<'fbx' | 'gltf'>('fbx')
 
   const [modelLoaded, setModelLoaded] = useState(false)
@@ -44,6 +45,7 @@ export function Spritesheet3DPage() {
   const [capturedImage, setCapturedImage] = useState<string | null>(null)
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null)
   const [textureFlipY, setTextureFlipY] = useState(true)
+  const [isDraggingModel, setIsDraggingModel] = useState(false)
 
   const currentPreset = presets[presetKey]
 
@@ -283,8 +285,6 @@ export function Spritesheet3DPage() {
       const loader = new THREE.TextureLoader()
       loader.load(url, (texture) => {
         texture.colorSpace = THREE.SRGBColorSpace
-        // FBX models exported from Mixamo: UVs expect flipY = true (default)
-        // GLTF models: flipY = false (glTF spec)
         texture.flipY = flip
         texture.wrapS = THREE.RepeatWrapping
         texture.wrapT = THREE.RepeatWrapping
@@ -298,7 +298,6 @@ export function Spritesheet3DPage() {
           materials.forEach((mat, idx) => {
             if (!mat) return
 
-            // Create a fresh MeshStandardMaterial with the texture
             const newMat = new THREE.MeshStandardMaterial({
               map: texture,
               side: THREE.DoubleSide,
@@ -325,7 +324,6 @@ export function Spritesheet3DPage() {
     const newFlip = !textureFlipY
     setTextureFlipY(newFlip)
 
-    // Re-apply existing textures with flipped Y
     if (!modelRef.current) return
     modelRef.current.traverse((child) => {
       if (!(child as THREE.Mesh).isMesh) return
@@ -392,7 +390,6 @@ export function Spritesheet3DPage() {
       captureCamera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000)
     }
 
-    // Clean scene for capture (no grid)
     const captureScene = new THREE.Scene()
     captureScene.add(new THREE.AmbientLight(0xffffff, 1.5))
     const dLight = new THREE.DirectionalLight(0xffffff, 2.0)
@@ -439,7 +436,6 @@ export function Spritesheet3DPage() {
       }
     }
 
-    // Move model back to main scene
     scene.add(model)
 
     if (mixer && clip) {
@@ -450,7 +446,6 @@ export function Spritesheet3DPage() {
 
     captureRenderer.dispose()
 
-    // Show preview instead of auto-downloading
     const blob = await canvasToBlob(sheetCanvas)
     const previewUrl = URL.createObjectURL(blob)
     setCapturedImage(previewUrl)
@@ -464,22 +459,59 @@ export function Spritesheet3DPage() {
     downloadBlob(capturedBlob, `spritesheet_${presetKey}_${frameCount}f.png`)
   }
 
-  const handleFiles = (files: File[]) => {
-    loadModel(files[0])
-  }
-
   const lastTextureFileRef = useRef<File | null>(null)
   const handleTextureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (files?.[0]) {
       lastTextureFileRef.current = files[0]
-      // FBX default flipY=true, GLTF default flipY=false
       const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
       setTextureFlipY(defaultFlip)
       applyTexture(files[0], defaultFlip)
     }
     e.target.value = ''
   }
+
+  const handleModelFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files?.[0]) loadModel(files[0])
+    e.target.value = ''
+  }
+
+  // Drag-and-drop on the viewport for model files
+  const handleViewportDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+    setIsDraggingModel(true)
+  }, [])
+
+  const handleViewportDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingModel(false)
+  }, [])
+
+  const handleViewportDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDraggingModel(false)
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length > 0) {
+      const file = files[0]
+      const ext = file.name.split('.').pop()?.toLowerCase()
+      if (ext === 'fbx' || ext === 'glb' || ext === 'gltf') {
+        loadModel(file)
+      } else if (file.type.startsWith('image/')) {
+        // If it's an image, treat it as a texture
+        if (modelRef.current) {
+          lastTextureFileRef.current = file
+          const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
+          setTextureFlipY(defaultFlip)
+          applyTexture(file, defaultFlip)
+        }
+      }
+    }
+  }, [loadModel, applyTexture])
 
   return (
     <div className="space-y-6">
@@ -489,13 +521,6 @@ export function Spritesheet3DPage() {
           Load a 3D model with animations (FBX from Mixamo), capture from multiple angles
         </p>
       </div>
-
-      <FileDropzone
-        onFiles={handleFiles}
-        accept=".fbx,.glb,.gltf"
-        label="Drop your 3D model here (FBX or GLB)"
-        description="FBX recommended for Mixamo models"
-      />
 
       {loadError && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3">
@@ -510,6 +535,21 @@ export function Spritesheet3DPage() {
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-medium text-zinc-500">3D Preview</p>
               <div className="flex items-center gap-1">
+                {/* Model upload button — always visible */}
+                <button
+                  onClick={() => modelInputRef.current?.click()}
+                  className="text-zinc-400 hover:text-zinc-600 p-1.5 rounded hover:bg-zinc-100"
+                  title="Load 3D model (FBX, GLB, GLTF)"
+                >
+                  <FolderOpen size={15} />
+                </button>
+                <input
+                  ref={modelInputRef}
+                  type="file"
+                  accept=".fbx,.glb,.gltf"
+                  onChange={handleModelFileInput}
+                  className="hidden"
+                />
                 {modelLoaded && (
                   <>
                     <button
@@ -544,14 +584,48 @@ export function Spritesheet3DPage() {
                 )}
               </div>
             </div>
+
+            {/* Viewport with drag-and-drop overlay */}
             <div
-              ref={containerRef}
-              className="w-full aspect-square bg-zinc-50 rounded overflow-hidden"
-              style={{
-                backgroundImage: 'repeating-conic-gradient(#e4e4e7 0% 25%, #f4f4f5 0% 50%)',
-                backgroundSize: '20px 20px',
-              }}
-            />
+              className="relative w-full aspect-square rounded overflow-hidden"
+              onDragOver={handleViewportDragOver}
+              onDragLeave={handleViewportDragLeave}
+              onDrop={handleViewportDrop}
+            >
+              <div
+                ref={containerRef}
+                className="w-full h-full"
+                style={{
+                  backgroundImage: 'repeating-conic-gradient(#e4e4e7 0% 25%, #f4f4f5 0% 50%)',
+                  backgroundSize: '20px 20px',
+                }}
+              />
+
+              {/* Empty state — no model loaded */}
+              {!modelLoaded && !isDraggingModel && (
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center cursor-pointer bg-zinc-50/80 backdrop-blur-sm"
+                  onClick={() => modelInputRef.current?.click()}
+                >
+                  <Upload className="mb-3 text-zinc-400" size={36} />
+                  <p className="text-sm font-medium text-zinc-600">Drop a 3D model here</p>
+                  <p className="text-xs text-zinc-400 mt-1">or click to browse · FBX, GLB, GLTF</p>
+                </div>
+              )}
+
+              {/* Drag overlay */}
+              {isDraggingModel && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-blue-50/90 backdrop-blur-sm border-2 border-dashed border-blue-400 rounded z-10">
+                  <Upload className="mb-2 text-blue-500" size={32} />
+                  <p className="text-sm font-medium text-blue-700">
+                    {modelLoaded ? 'Drop model or texture' : 'Drop 3D model'}
+                  </p>
+                  <p className="text-xs text-blue-500 mt-0.5">
+                    {modelLoaded ? 'FBX/GLB for model, images for texture' : 'FBX, GLB, GLTF'}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {modelLoaded && (
@@ -608,6 +682,65 @@ export function Spritesheet3DPage() {
 
         {/* Controls */}
         <div className="space-y-4">
+          {/* Model input card */}
+          <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
+            <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Model</p>
+            <button
+              onClick={() => modelInputRef.current?.click()}
+              className={cn(
+                'w-full flex items-center gap-3 px-3 py-3 rounded-lg border-2 border-dashed transition-colors text-left',
+                modelLoaded
+                  ? 'border-zinc-200 hover:border-zinc-300 bg-zinc-50'
+                  : 'border-blue-300 hover:border-blue-400 bg-blue-50/50'
+              )}
+            >
+              <FolderOpen size={18} className={modelLoaded ? 'text-zinc-400' : 'text-blue-500'} />
+              <div className="min-w-0 flex-1">
+                <p className={cn('text-xs font-medium', modelLoaded ? 'text-zinc-600' : 'text-blue-700')}>
+                  {modelLoaded ? 'Replace model' : 'Load 3D model'}
+                </p>
+                <p className="text-[11px] text-zinc-400 truncate">FBX, GLB, GLTF</p>
+              </div>
+            </button>
+          </div>
+
+          {/* Texture input card */}
+          <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
+            <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Texture</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => textureInputRef.current?.click()}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-1',
+                  modelLoaded
+                    ? 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                    : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
+                )}
+                disabled={!modelLoaded}
+              >
+                <ImagePlus size={13} /> Apply Texture
+              </button>
+              <button
+                onClick={handleToggleFlipY}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  modelLoaded
+                    ? 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                    : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
+                )}
+                disabled={!modelLoaded}
+                title={`Toggle UV flip (flipY=${textureFlipY})`}
+              >
+                <FlipVertical size={13} /> Flip UV
+              </button>
+            </div>
+            <p className="text-[10px] text-zinc-400">
+              {modelLoaded
+                ? 'Upload a texture if the model lost its textures. You can also drag images onto the viewport.'
+                : 'Load a model first to apply textures.'}
+            </p>
+          </div>
+
           {animations.length > 0 && (
             <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
               <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Animation</p>
@@ -685,29 +818,6 @@ export function Spritesheet3DPage() {
               value={bgColor}
               onChange={(e) => setBgColor(e.target.value as typeof bgColor)}
             />
-
-            {/* Texture controls */}
-            <div className="pt-2 border-t border-zinc-100 space-y-2">
-              <p className="text-[11px] font-medium text-zinc-500">Texture</p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => textureInputRef.current?.click()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 text-xs font-medium text-zinc-600 hover:bg-zinc-200 transition-colors flex-1"
-                >
-                  <ImagePlus size={13} /> Apply Texture
-                </button>
-                <button
-                  onClick={handleToggleFlipY}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 text-xs font-medium text-zinc-600 hover:bg-zinc-200 transition-colors"
-                  title={`Toggle UV flip (flipY=${textureFlipY})`}
-                >
-                  <FlipVertical size={13} /> Flip UV
-                </button>
-              </div>
-              <p className="text-[10px] text-zinc-400">
-                Upload a texture if the model lost its textures. Use Flip UV if the texture appears mirrored.
-              </p>
-            </div>
           </div>
 
           <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">

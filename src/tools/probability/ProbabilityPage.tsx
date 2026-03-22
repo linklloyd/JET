@@ -321,6 +321,13 @@ export function ProbabilityPage() {
           highlightXs={highlightXs}
           tableOpen={tableOpen}
           setTableOpen={setTableOpen}
+          formulaFn={
+            distType === 'binomial'
+              ? (x: number) => `C(${binN},${x}) · ${binP}^${x} · ${(1 - +binP).toFixed(4)}^${+binN - x}`
+              : distType === 'poisson'
+              ? (x: number) => `(${poisLambda}^${x} · e^-${poisLambda}) / ${x}!`
+              : undefined
+          }
         />
       )}
 
@@ -341,6 +348,7 @@ export function ProbabilityPage() {
               highlightXs={highlightXsSuc}
               tableOpen={tableOpenSuc}
               setTableOpen={setTableOpenSuc}
+              formulaFn={(x: number) => `C(${hypK},${x}) · C(${+hypN - +hypK},${+hypn - x}) / C(${hypN},${hypn})`}
             />
           </div>
 
@@ -361,6 +369,7 @@ export function ProbabilityPage() {
               tableOpen={tableOpenFail}
               setTableOpen={setTableOpenFail}
               color="amber"
+              formulaFn={(x: number) => `C(${+hypN - +hypK},${x}) · C(${hypK},${+hypn - x}) / C(${hypN},${hypn})`}
             />
           </div>
         </div>
@@ -381,7 +390,7 @@ interface IncisoHandlers {
 type ChartColor = 'blue' | 'amber'
 
 function DistPanel({
-  base, incisos, handlers, highlightXs, tableOpen, setTableOpen, color = 'blue',
+  base, incisos, handlers, highlightXs, tableOpen, setTableOpen, color = 'blue', formulaFn,
 }: {
   base: DistBaseResult
   incisos: Inciso[]
@@ -390,6 +399,7 @@ function DistPanel({
   tableOpen: boolean
   setTableOpen: (v: boolean) => void
   color?: ChartColor
+  formulaFn?: (x: number) => string
 }) {
   return (
     <div className="space-y-4">
@@ -417,7 +427,7 @@ function DistPanel({
         </button>
         {tableOpen && (
           <div className="px-4 pb-4">
-            <DistTable table={base.table} highlightXs={highlightXs} />
+            <DistTable table={base.table} highlightXs={highlightXs} formulaFn={formulaFn} />
           </div>
         )}
       </div>
@@ -620,13 +630,16 @@ function StatItem({ label, value, formula }: { label: string; value: string; for
   )
 }
 
-function DistTable({ table, highlightXs }: { table: TableRow[]; highlightXs: Set<number> }) {
+function DistTable({ table, highlightXs, formulaFn }: { table: TableRow[]; highlightXs: Set<number>; formulaFn?: (x: number) => string }) {
   return (
-    <div className="max-h-64 overflow-y-auto rounded border border-zinc-100">
+    <div className="max-h-80 overflow-y-auto rounded border border-zinc-100">
       <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-zinc-50">
+        <thead className="sticky top-0 bg-zinc-50 z-10">
           <tr>
             <th className="text-left px-3 py-2 font-medium text-zinc-600 border-b border-zinc-200"><M>x</M></th>
+            {formulaFn && (
+              <th className="text-left px-3 py-2 font-medium text-zinc-600 border-b border-zinc-200">Fórmula</th>
+            )}
             <th className="text-right px-3 py-2 font-medium text-zinc-600 border-b border-zinc-200"><M>P(X = x)</M></th>
             <th className="text-right px-3 py-2 font-medium text-zinc-600 border-b border-zinc-200"><M>P(X ≤ x)</M></th>
           </tr>
@@ -635,6 +648,11 @@ function DistTable({ table, highlightXs }: { table: TableRow[]; highlightXs: Set
           {table.map((row) => (
             <tr key={row.x} className={highlightXs.has(row.x) ? 'bg-blue-50 font-medium' : 'hover:bg-zinc-50'}>
               <td className="px-3 py-1.5 border-b border-zinc-100 font-mono">{row.x}</td>
+              {formulaFn && (
+                <td className="px-3 py-1.5 border-b border-zinc-100 font-mono text-[11px] text-zinc-500 whitespace-nowrap">
+                  {formulaFn(row.x)}
+                </td>
+              )}
               <td className="px-3 py-1.5 border-b border-zinc-100 text-right font-mono">{row.px.toFixed(4)}</td>
               <td className="px-3 py-1.5 border-b border-zinc-100 text-right font-mono">{row.cumulative.toFixed(4)}</td>
             </tr>

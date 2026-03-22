@@ -64,6 +64,36 @@ interface Section {
 
 const defaultSections: Section[] = [
   {
+    title: 'Math',
+    tools: [
+      {
+        path: '/probability',
+        label: 'Probability',
+        icon: Dice5,
+        subtabs: [
+          { path: '/probability/binomial', label: 'Binomial', icon: BarChart3 },
+          { path: '/probability/poisson', label: 'Poisson', icon: Sigma },
+          { path: '/probability/hypergeometric', label: 'Hypergeometric', icon: Shuffle },
+          { path: '/probability/custom', label: 'Custom', icon: SlidersHorizontal },
+        ],
+      },
+      {
+        path: '/matrices',
+        label: 'Matrices',
+        icon: Table2,
+        subtabs: [
+          { path: '/matrices/multiplication', label: 'Multiplication', icon: X },
+          { path: '/matrices/echelon', label: 'Echelon', icon: ArrowDownNarrowWide },
+          { path: '/matrices/inverse', label: 'Inverse', icon: FlipHorizontal },
+          { path: '/matrices/determinant', label: 'Determinant', icon: Hash },
+          { path: '/matrices/cofactors', label: 'Cofactors', icon: GridIcon },
+          { path: '/matrices/systems', label: 'Systems', icon: Variable },
+          { path: '/matrices/visualizer', label: 'Visualizer', icon: Eye },
+        ],
+      },
+    ],
+  },
+  {
     title: 'Media',
     tools: [
       { path: '/social-converter', label: 'Social Converter', icon: Music, disabled: true },
@@ -100,6 +130,13 @@ const defaultSections: Section[] = [
     ],
   },
   {
+    title: 'Effects',
+    tools: [
+      { path: '/glitch-lab', label: 'Glitch Lab', icon: Zap },
+      { path: '/earthbound-bg', label: 'EB Backgrounds', icon: Tv },
+    ],
+  },
+  {
     title: 'World',
     tools: [
       { path: '/tileset-generator', label: 'Tileset Generator', icon: LayoutGrid },
@@ -108,46 +145,9 @@ const defaultSections: Section[] = [
     ],
   },
   {
-    title: 'Math',
-    tools: [
-      {
-        path: '/probability',
-        label: 'Probability',
-        icon: Dice5,
-        subtabs: [
-          { path: '/probability/binomial', label: 'Binomial', icon: BarChart3 },
-          { path: '/probability/poisson', label: 'Poisson', icon: Sigma },
-          { path: '/probability/hypergeometric', label: 'Hypergeometric', icon: Shuffle },
-          { path: '/probability/custom', label: 'Custom', icon: SlidersHorizontal },
-        ],
-      },
-      {
-        path: '/matrices',
-        label: 'Matrices',
-        icon: Table2,
-        subtabs: [
-          { path: '/matrices/multiplication', label: 'Multiplication', icon: X },
-          { path: '/matrices/echelon', label: 'Echelon', icon: ArrowDownNarrowWide },
-          { path: '/matrices/inverse', label: 'Inverse', icon: FlipHorizontal },
-          { path: '/matrices/determinant', label: 'Determinant', icon: Hash },
-          { path: '/matrices/cofactors', label: 'Cofactors', icon: GridIcon },
-          { path: '/matrices/systems', label: 'Systems', icon: Variable },
-          { path: '/matrices/visualizer', label: 'Visualizer', icon: Eye },
-        ],
-      },
-    ],
-  },
-  {
     title: 'Automation',
     tools: [
       { path: '/pipeline', label: 'Pipeline', icon: Workflow },
-    ],
-  },
-  {
-    title: 'Effects',
-    tools: [
-      { path: '/glitch-lab', label: 'Glitch Lab', icon: Zap },
-      { path: '/earthbound-bg', label: 'EB Backgrounds', icon: Tv },
     ],
   },
 ]

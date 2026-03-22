@@ -17,9 +17,14 @@ import {
   Dice5,
   Table2,
   Workflow,
-  Waves,
   Tv,
   Zap,
+  Video,
+  AudioWaveform,
+  Play,
+  MapPinned,
+  Music,
+  ArrowRight,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
@@ -34,10 +39,21 @@ interface ToolCard {
 
 const sections: { title: string; description: string; tools: ToolCard[] }[] = [
   {
+    title: 'Math',
+    description: 'Probability distributions and matrix operations',
+    tools: [
+      { path: '/probability/binomial', label: 'Probability', description: 'Binomial, Poisson, Hypergeometric & custom distributions', icon: Dice5, color: 'slate' },
+      { path: '/matrices/multiplication', label: 'Matrices', description: 'Multiply, reduce, invert, and solve matrix systems', icon: Table2, color: 'zinc' },
+    ],
+  },
+  {
     title: 'Media',
     description: 'Convert and download media files',
     tools: [
       { path: '/format-converter', label: 'Format Converter', description: 'Universal file converter — images, video, audio', icon: FileType, color: 'blue' },
+      { path: '/video-to-gif', label: 'Video to GIF', description: 'Convert video clips to animated GIFs', icon: Video, color: 'indigo' },
+      { path: '/audio-waveform', label: 'Audio Waveform', description: 'Visualize audio as waveform images', icon: AudioWaveform, color: 'sky' },
+      { path: '/social-converter', label: 'Social Converter', description: 'Resize media for social platforms', icon: Music, color: 'slate', disabled: true },
     ],
   },
   {
@@ -47,7 +63,7 @@ const sections: { title: string; description: string; tools: ToolCard[] }[] = [
       { path: '/image-upscaler', label: 'Image Upscaler', description: 'High-quality photo upscaling inspired by waifu2x', icon: ZoomIn, color: 'purple' },
       { path: '/pixel-upscaler', label: 'Pixel Upscaler', description: 'Smart pixel art upscaling with EPX, xBR & more', icon: Maximize2, color: 'violet' },
       { path: '/image-to-pixelart', label: 'Image to Pixel Art', description: 'Convert any image into pixel art', icon: Grid2X2, color: 'pink' },
-      { path: '/color-extractor', label: 'Color Extractor', description: 'Extract color palettes from images', icon: Palette, color: 'rose' },
+      { path: '/color-tools', label: 'Color Tools', description: 'Extract and manage color palettes', icon: Palette, color: 'rose' },
     ],
   },
   {
@@ -58,6 +74,7 @@ const sections: { title: string; description: string; tools: ToolCard[] }[] = [
       { path: '/sprite-to-gif', label: 'Sprite to GIF', description: 'Convert spritesheets to animated GIFs', icon: Film, color: 'green' },
       { path: '/recolor', label: 'Sprite Recolor', description: 'Swap colors in sprites with precision', icon: PaintBucket, color: 'teal' },
       { path: '/3d-spritesheet', label: '3D Spritesheet', description: 'Capture 3D models from multiple angles', icon: Box, color: 'cyan' },
+      { path: '/sprite-animator', label: 'Sprite Animator', description: 'Preview and fine-tune sprite animations', icon: Play, color: 'emerald' },
     ],
   },
   {
@@ -70,20 +87,20 @@ const sections: { title: string; description: string; tools: ToolCard[] }[] = [
     ],
   },
   {
-    title: 'World',
-    description: 'Generate maps and tilesets',
+    title: 'Effects',
+    description: 'Visual effects and backgrounds',
     tools: [
-      { path: '/tileset-generator', label: 'Tileset Generator', description: 'Arrange tiles into tilesets with metadata', icon: LayoutGrid, color: 'sky' },
-      { path: '/map-generator', label: 'Map Generator', description: 'Procedural dungeon & overworld maps', icon: Map, color: 'indigo' },
-      { path: '/noise-generator', label: 'Noise Generator', description: 'Perlin, Simplex, Voronoi & procedural textures', icon: Waves, color: 'cyan' },
+      { path: '/glitch-lab', label: 'Glitch Lab', description: 'Glitch, distort, and corrupt images with stacking effects', icon: Zap, color: 'violet' },
+      { path: '/earthbound-bg', label: 'EB Backgrounds', description: 'Animated Earthbound battle backgrounds', icon: Tv, color: 'rose' },
     ],
   },
   {
-    title: 'Math',
-    description: 'Probability distributions and matrix operations',
+    title: 'World',
+    description: 'Generate maps, tilesets, and levels',
     tools: [
-      { path: '/probability/binomial', label: 'Probability', description: 'Binomial, Poisson, Hypergeometric & custom distributions', icon: Dice5, color: 'slate' },
-      { path: '/matrices/multiplication', label: 'Matrices', description: 'Multiply, reduce, invert, and solve matrix systems', icon: Table2, color: 'zinc' },
+      { path: '/tileset-generator', label: 'Tileset Generator', description: 'Arrange tiles into tilesets with metadata', icon: LayoutGrid, color: 'sky' },
+      { path: '/map-generator', label: 'Map Generator', description: 'Procedural dungeon & overworld maps', icon: Map, color: 'indigo' },
+      { path: '/level-editor', label: 'Level Editor', description: 'Design and edit game levels visually', icon: MapPinned, color: 'blue' },
     ],
   },
   {
@@ -93,78 +110,102 @@ const sections: { title: string; description: string; tools: ToolCard[] }[] = [
       { path: '/pipeline', label: 'Pipeline', description: 'Chain tools together into automated workflows', icon: Workflow, color: 'fuchsia' },
     ],
   },
-  {
-    title: 'Effects',
-    description: 'Visual effects and backgrounds',
-    tools: [
-      { path: '/glitch-lab', label: 'Glitch Lab', description: 'Glitch, distort, and corrupt images with stacking effects', icon: Zap, color: 'violet' },
-      { path: '/earthbound-bg', label: 'EB Backgrounds', description: 'Animated Earthbound battle backgrounds', icon: Tv, color: 'rose' },
-    ],
-  },
 ]
 
-const colorMap: Record<string, string> = {
-  blue: 'bg-blue-50 text-blue-600 group-hover:bg-blue-100',
-  purple: 'bg-purple-50 text-purple-600 group-hover:bg-purple-100',
-  violet: 'bg-violet-50 text-violet-600 group-hover:bg-violet-100',
-  pink: 'bg-pink-50 text-pink-600 group-hover:bg-pink-100',
-  rose: 'bg-rose-50 text-rose-600 group-hover:bg-rose-100',
-  emerald: 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100',
-  green: 'bg-green-50 text-green-600 group-hover:bg-green-100',
-  teal: 'bg-teal-50 text-teal-600 group-hover:bg-teal-100',
-  cyan: 'bg-cyan-50 text-cyan-600 group-hover:bg-cyan-100',
-  amber: 'bg-amber-50 text-amber-600 group-hover:bg-amber-100',
-  orange: 'bg-orange-50 text-orange-600 group-hover:bg-orange-100',
-  yellow: 'bg-yellow-50 text-yellow-600 group-hover:bg-yellow-100',
-  sky: 'bg-sky-50 text-sky-600 group-hover:bg-sky-100',
-  indigo: 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-100',
-  slate: 'bg-slate-100 text-slate-600 group-hover:bg-slate-200',
-  zinc: 'bg-zinc-100 text-zinc-600 group-hover:bg-zinc-200',
-  fuchsia: 'bg-fuchsia-50 text-fuchsia-600 group-hover:bg-fuchsia-100',
+const colorMap: Record<string, { badge: string; border: string }> = {
+  blue:    { badge: 'bg-blue-100 text-blue-600 group-hover:bg-blue-200',       border: 'group-hover:border-blue-200' },
+  purple:  { badge: 'bg-purple-100 text-purple-600 group-hover:bg-purple-200', border: 'group-hover:border-purple-200' },
+  violet:  { badge: 'bg-violet-100 text-violet-600 group-hover:bg-violet-200', border: 'group-hover:border-violet-200' },
+  pink:    { badge: 'bg-pink-100 text-pink-600 group-hover:bg-pink-200',       border: 'group-hover:border-pink-200' },
+  rose:    { badge: 'bg-rose-100 text-rose-600 group-hover:bg-rose-200',       border: 'group-hover:border-rose-200' },
+  emerald: { badge: 'bg-emerald-100 text-emerald-600 group-hover:bg-emerald-200', border: 'group-hover:border-emerald-200' },
+  green:   { badge: 'bg-green-100 text-green-600 group-hover:bg-green-200',    border: 'group-hover:border-green-200' },
+  teal:    { badge: 'bg-teal-100 text-teal-600 group-hover:bg-teal-200',       border: 'group-hover:border-teal-200' },
+  cyan:    { badge: 'bg-cyan-100 text-cyan-600 group-hover:bg-cyan-200',       border: 'group-hover:border-cyan-200' },
+  amber:   { badge: 'bg-amber-100 text-amber-600 group-hover:bg-amber-200',    border: 'group-hover:border-amber-200' },
+  orange:  { badge: 'bg-orange-100 text-orange-600 group-hover:bg-orange-200',  border: 'group-hover:border-orange-200' },
+  yellow:  { badge: 'bg-yellow-100 text-yellow-600 group-hover:bg-yellow-200',  border: 'group-hover:border-yellow-200' },
+  sky:     { badge: 'bg-sky-100 text-sky-600 group-hover:bg-sky-200',           border: 'group-hover:border-sky-200' },
+  indigo:  { badge: 'bg-indigo-100 text-indigo-600 group-hover:bg-indigo-200',  border: 'group-hover:border-indigo-200' },
+  slate:   { badge: 'bg-slate-100 text-slate-600 group-hover:bg-slate-200',     border: 'group-hover:border-slate-200' },
+  zinc:    { badge: 'bg-zinc-100 text-zinc-600 group-hover:bg-zinc-200',        border: 'group-hover:border-zinc-200' },
+  fuchsia: { badge: 'bg-fuchsia-100 text-fuchsia-600 group-hover:bg-fuchsia-200', border: 'group-hover:border-fuchsia-200' },
 }
 
 export function HomePage() {
   return (
-    <div className="space-y-10 pb-12">
+    <div className="space-y-12 pb-16">
       {/* Hero */}
-      <div className="text-center py-8">
+      <div className="text-center py-10">
         <h1 className="text-4xl font-bold text-zinc-900 tracking-tight">
           Just Enough Tools
         </h1>
-        <p className="text-lg text-zinc-500 mt-2 max-w-lg mx-auto">
-          Fast, private, browser-based tools for creators and developers. No uploads, no signups.
+        <p className="text-lg text-zinc-500 mt-3 max-w-lg mx-auto leading-relaxed">
+          Fast, private, browser-based tools for creators and developers.
+          <br className="hidden sm:block" />
+          No uploads, no signups.
         </p>
       </div>
 
       {/* Tool sections */}
       {sections.map((section) => (
-        <div key={section.title}>
-          <div className="mb-4">
-            <h2 className="text-sm font-bold text-zinc-400 uppercase tracking-wider">{section.title}</h2>
-            <p className="text-xs text-zinc-400 mt-0.5">{section.description}</p>
+        <section key={section.title}>
+          <div className="mb-5 flex items-baseline gap-3">
+            <h2 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">
+              {section.title}
+            </h2>
+            <div className="flex-1 h-px bg-zinc-100" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {section.tools.map((tool) => (
-              <NavLink
-                key={tool.path}
-                to={tool.path}
-                className={cn(
-                  'group flex items-start gap-3 p-5 rounded-xl border border-zinc-200 bg-white',
-                  'hover:border-zinc-300 hover:shadow-sm transition-all duration-200',
-                  tool.disabled && 'opacity-40 pointer-events-none'
-                )}
-              >
-                <div className={cn('p-2 rounded-lg transition-colors duration-200', colorMap[tool.color])}>
-                  <tool.icon size={18} />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-zinc-800 group-hover:text-zinc-900">{tool.label}</p>
-                  <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">{tool.description}</p>
-                </div>
-              </NavLink>
-            ))}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {section.tools.map((tool) => {
+              const colors = colorMap[tool.color] ?? colorMap.slate
+
+              return (
+                <NavLink
+                  key={tool.path}
+                  to={tool.path}
+                  className={cn(
+                    'group relative flex items-start gap-4 p-4 rounded-xl border border-zinc-200/80 bg-white',
+                    'hover:shadow-md hover:shadow-zinc-100 transition-all duration-200',
+                    colors.border,
+                    tool.disabled && 'opacity-35 pointer-events-none',
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'shrink-0 p-2.5 rounded-xl transition-colors duration-200',
+                      colors.badge,
+                    )}
+                  >
+                    <tool.icon size={20} />
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-sm font-semibold text-zinc-800 group-hover:text-zinc-900 truncate">
+                        {tool.label}
+                      </p>
+                      {tool.disabled && (
+                        <span className="shrink-0 text-[10px] font-medium text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded-full">
+                          Soon
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-zinc-500 mt-1 leading-relaxed line-clamp-2">
+                      {tool.description}
+                    </p>
+                  </div>
+
+                  <ArrowRight
+                    size={14}
+                    className="shrink-0 mt-1 text-zinc-300 opacity-0 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all duration-200"
+                  />
+                </NavLink>
+              )
+            })}
           </div>
-        </div>
+        </section>
       ))}
     </div>
   )
