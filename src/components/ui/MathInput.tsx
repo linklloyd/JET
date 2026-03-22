@@ -97,6 +97,17 @@ export function MathInput({
     mf.smartFence = true
     mf.smartSuperscript = true
     mf.mathVirtualKeyboardPolicy = 'manual'
+    mf.menuItems = []  // disable the ≡ menu button
+
+    // Hide built-in virtual keyboard toggle and menu from shadow DOM
+    requestAnimationFrame(() => {
+      const shadow = mf.shadowRoot
+      if (shadow) {
+        const style = document.createElement('style')
+        style.textContent = `.ML__virtual-keyboard-toggle, .ML__menu-toggle { display: none !important; }`
+        shadow.appendChild(style)
+      }
+    })
 
     const handleInput = () => {
       onChange(mf.value)

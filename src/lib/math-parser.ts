@@ -353,6 +353,10 @@ export function algebriteToLatex(expr: string): string {
   // Simple numeric fractions: 1/3, 3/2, etc.
   s = s.replace(/(?<![a-zA-Z^{])(\d+)\/(\d+)(?![a-zA-Z}])/g, '\\frac{$1}{$2}')
 
+  // exp(x) → e^{x}  (Algebrite outputs exp() for exponentials)
+  // Handle with or without word boundary (e.g. "2exp(x)" has no \b between digit and exp)
+  s = s.replace(/exp\(([^()]*)\)/g, 'e^{$1}')
+
   // sqrt(x) → \sqrt{x}
   s = s.replace(/sqrt\(([^()]*)\)/g, '\\sqrt{$1}')
 
