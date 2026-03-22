@@ -44,6 +44,7 @@ export function IntegralsPage() {
 
 function IntegralsView({ method }: { method: IntegralMethod }) {
   const [expression, setExpression] = useState('')
+  const [variable, setVariable] = useState('x')
   const [result, setResult] = useState<IntegralResult | null>(null)
 
   const info = METHOD_INFO[method]
@@ -53,13 +54,14 @@ function IntegralsView({ method }: { method: IntegralMethod }) {
 
     try {
       const algebriteExpr = latexToAlgebrite(expression)
-      const variable = detectVariable(expression)
-      const res = solveIntegral(algebriteExpr, variable, method)
+      const v = variable.trim() || detectVariable(expression)
+      const res = solveIntegral(algebriteExpr, v, method)
       setResult(res)
     } catch (err) {
+      const v = variable.trim() || detectVariable(expression)
       setResult({
         input: expression,
-        variable: detectVariable(expression),
+        variable: v,
         technique: 'direct',
         antiderivative: '',
         steps: [],
@@ -87,6 +89,18 @@ function IntegralsView({ method }: { method: IntegralMethod }) {
           onChange={setExpression}
           placeholder="ej: x^2 + 3x + 1"
         />
+
+        <div className="flex items-center gap-3">
+          <label className="text-xs font-medium text-zinc-500 whitespace-nowrap">Variable de integración</label>
+          <input
+            type="text"
+            value={variable}
+            onChange={(e) => setVariable(e.target.value.replace(/[^a-zA-Z]/g, '').slice(0, 1))}
+            className="w-12 text-center border border-zinc-200 rounded-md px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            maxLength={1}
+          />
+          <span className="text-[10px] text-zinc-400">Las demás letras se tratan como constantes</span>
+        </div>
 
         <Button onClick={handleCalculate} disabled={!canCalculate} className="w-full">
           <Calculator size={16} /> Calcular Integral

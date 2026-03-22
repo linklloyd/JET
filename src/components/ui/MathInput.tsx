@@ -52,21 +52,6 @@ const KEYBOARD_CATEGORIES: KBCategory[] = [
       { display: 'tan⁻¹', latex: '\\arctan(#0)' },
     ],
   },
-  {
-    label: 'Constants',
-    symbols: [
-      { display: 'π', latex: '\\pi' },
-      { display: 'e', latex: 'e' },
-      { display: '∞', latex: '\\infty' },
-      { display: 'θ', latex: '\\theta' },
-      { display: 'α', latex: '\\alpha' },
-      { display: 'β', latex: '\\beta' },
-      { display: 'γ', latex: '\\gamma' },
-      { display: 'δ', latex: '\\delta' },
-      { display: 'λ', latex: '\\lambda' },
-      { display: 'φ', latex: '\\phi' },
-    ],
-  },
 ]
 
 // ---------------------------------------------------------------------------
