@@ -1,0 +1,332 @@
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { FileDropzone } from '../../components/ui/FileDropzone'
+import { Button } from '../../components/ui/Button'
+import { Slider } from '../../components/ui/Slider'
+import { Download } from 'lucide-react'
+import { fileToDataURL, loadImage, downloadBlob, canvasToBlob } from '../../lib/utils'
+
+export function ImageToPixelartPage() {
+  const [image, setImage] = useState<HTMLImageElement | null>(null)
+  const [pixelSize, setPixelSize] = useState(8)
+  const [colorCount, setColorCount] = useState(16)
+  const [outline, setOutline] = useState(false)
+  const [dithering, setDithering] = useState(false)
+  const srcCanvasRef = useRef<HTMLCanvasElement>(null)
+  const dstCanvasRef = useRef<HTMLCanvasElement>(null)
+
+  const handleFiles = async (files: File[]) => {
+    const url = await fileToDataURL(files[0])
+    const img = await loadImage(url)
+    setImage(img)
+  }
+
+  useEffect(() => {
+    if (!image || !srcCanvasRef.current) return
+    const c = srcCanvasRef.current
+    c.width = image.width
+    c.height = image.height
+    const ctx = c.getContext('2d')!
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(image, 0, 0)
+  }, [image])
+
+  const pixelate = useCallback(() => {
+    if (!image || !dstCanvasRef.current) return
+
+    const targetW = Math.ceil(image.width / pixelSize)
+    const targetH = Math.ceil(image.height / pixelSize)
+
+    // Step 1: Downscale
+    const smallCanvas = document.createElement('canvas')
+    smallCanvas.width = targetW
+    smallCanvas.height = targetH
+    const smallCtx = smallCanvas.getContext('2d')!
+    smallCtx.imageSmoothingEnabled = true
+    smallCtx.imageSmoothingQuality = 'medium'
+    smallCtx.drawImage(image, 0, 0, targetW, targetH)
+
+    // Step 2: Reduce colors
+    const imgData = smallCtx.getImageData(0, 0, targetW, targetH)
+    const reduced = reduceColors(imgData, colorCount, dithering)
+    smallCtx.putImageData(reduced, 0, 0)
+
+    // Step 3: Upscale with nearest neighbor
+    const outputW = targetW * pixelSize
+    const outputH = targetH * pixelSize
+    const dst = dstCanvasRef.current
+    dst.width = outputW
+    dst.height = outputH
+    const dstCtx = dst.getContext('2d')!
+    dstCtx.imageSmoothingEnabled = false
+    dstCtx.drawImage(smallCanvas, 0, 0, outputW, outputH)
+
+    // Step 4: Optional outline
+    if (outline) {
+      drawOutlines(dstCtx, reduced, pixelSize, outputW, outputH)
+    }
+  }, [image, pixelSize, colorCount, outline, dithering])
+
+  useEffect(() => { pixelate() }, [pixelate])
+
+  const handleDownload = async () => {
+    if (!dstCanvasRef.current) return
+    const blob = await canvasToBlob(dstCanvasRef.current)
+    const baseName = 'pixelart'
+    downloadBlob(blob, `${baseName}_${pixelSize}px.png`)
+  }
+
+  const handleDownloadSmall = async () => {
+    if (!image) return
+    const targetW = Math.ceil(image.width / pixelSize)
+    const targetH = Math.ceil(image.height / pixelSize)
+    const small = document.createElement('canvas')
+    small.width = targetW
+    small.height = targetH
+    const ctx = small.getContext('2d')!
+    ctx.imageSmoothingEnabled = true
+    ctx.drawImage(image, 0, 0, targetW, targetH)
+    const imgData = ctx.getImageData(0, 0, targetW, targetH)
+    const reduced = reduceColors(imgData, colorCount, dithering)
+    ctx.putImageData(reduced, 0, 0)
+    const blob = await canvasToBlob(small)
+    downloadBlob(blob, `pixelart_${targetW}x${targetH}.png`)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-zinc-900">Image to Pixel Art</h2>
+        <p className="text-sm text-zinc-500 mt-2">Convert any image into pixel art with adjustable resolution and colors</p>
+      </div>
+
+      <FileDropzone onFiles={handleFiles} accept="image/*" label="Drop an image to pixelate" />
+
+      {image && (
+        <div className="grid grid-cols-[1fr_260px] gap-6">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white border border-zinc-200 rounded-lg p-3">
+                <p className="text-xs font-medium text-zinc-500 mb-2">Original ({image.width}x{image.height})</p>
+                <div className="overflow-auto max-h-64 bg-zinc-100 rounded p-1">
+                  <canvas ref={srcCanvasRef} className="max-w-full" />
+                </div>
+              </div>
+              <div className="bg-white border border-zinc-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-medium text-zinc-500">
+                    Pixel Art ({Math.ceil(image.width / pixelSize)}x{Math.ceil(image.height / pixelSize)})
+                  </p>
+                </div>
+                <div className="overflow-auto max-h-64 bg-zinc-100 rounded p-1" style={{ imageRendering: 'pixelated' }}>
+                  <canvas ref={dstCanvasRef} className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={handleDownload} size="sm" className="flex-1">
+                <Download size={14} /> Download (upscaled)
+              </Button>
+              <Button onClick={handleDownloadSmall} size="sm" variant="secondary" className="flex-1">
+                <Download size={14} /> Download (1:1 pixel)
+              </Button>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-4">
+              <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Settings</p>
+
+              <Slider
+                label="Pixel Size"
+                displayValue={`${pixelSize}px`}
+                min={2}
+                max={32}
+                value={pixelSize}
+                onChange={(e) => setPixelSize(+(e.target as HTMLInputElement).value)}
+              />
+
+              <Slider
+                label="Color Count"
+                displayValue={String(colorCount)}
+                min={2}
+                max={64}
+                value={colorCount}
+                onChange={(e) => setColorCount(+(e.target as HTMLInputElement).value)}
+              />
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={outline} onChange={(e) => setOutline(e.target.checked)}
+                  className="accent-blue-600 rounded" />
+                <span className="text-xs font-medium text-zinc-600">Pixel outlines</span>
+              </label>
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={dithering} onChange={(e) => setDithering(e.target.checked)}
+                  className="accent-blue-600 rounded" />
+                <span className="text-xs font-medium text-zinc-600">Floyd-Steinberg dithering</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function reduceColors(imgData: ImageData, maxColors: number, dither: boolean): ImageData {
+  const data = new Uint8ClampedArray(imgData.data)
+  const w = imgData.width
+  const h = imgData.height
+
+  // Build palette using median cut
+  const pixels: [number, number, number][] = []
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 128) continue
+    pixels.push([data[i], data[i + 1], data[i + 2]])
+  }
+
+  const palette = medianCut(pixels, maxColors)
+
+  // Map pixels to nearest palette color (with optional dithering)
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4
+      if (data[i + 3] < 128) continue
+
+      const r = data[i], g = data[i + 1], b = data[i + 2]
+      const nearest = findNearest(palette, r, g, b)
+
+      if (dither) {
+        const errR = r - nearest[0]
+        const errG = g - nearest[1]
+        const errB = b - nearest[2]
+        distributeError(data, w, h, x, y, errR, errG, errB)
+      }
+
+      data[i] = nearest[0]
+      data[i + 1] = nearest[1]
+      data[i + 2] = nearest[2]
+    }
+  }
+
+  return new ImageData(data, w, h)
+}
+
+function medianCut(pixels: [number, number, number][], maxColors: number): [number, number, number][] {
+  if (pixels.length === 0) return [[0, 0, 0]]
+
+  // Sample pixels if too many to avoid performance issues
+  let sampled = pixels
+  if (pixels.length > 10000) {
+    const step = Math.ceil(pixels.length / 10000)
+    sampled = []
+    for (let i = 0; i < pixels.length; i += step) {
+      sampled.push(pixels[i])
+    }
+  }
+
+  type Bucket = [number, number, number][]
+  let buckets: Bucket[] = [sampled]
+
+  while (buckets.length < maxColors) {
+    let maxRange = -1
+    let maxIdx = 0
+    let splitChannel = 0
+
+    for (let i = 0; i < buckets.length; i++) {
+      const b = buckets[i]
+      if (b.length < 2) continue
+      for (let ch = 0; ch < 3; ch++) {
+        let lo = 255, hi = 0
+        for (const p of b) {
+          if (p[ch] < lo) lo = p[ch]
+          if (p[ch] > hi) hi = p[ch]
+        }
+        const range = hi - lo
+        if (range > maxRange) {
+          maxRange = range
+          maxIdx = i
+          splitChannel = ch
+        }
+      }
+    }
+
+    if (maxRange <= 0) break
+
+    const bucket = buckets[maxIdx]
+    bucket.sort((a, b) => a[splitChannel] - b[splitChannel])
+    const mid = Math.floor(bucket.length / 2)
+    buckets.splice(maxIdx, 1, bucket.slice(0, mid), bucket.slice(mid))
+  }
+
+  return buckets.map((b) => {
+    let r = 0, g = 0, bl = 0
+    for (const p of b) { r += p[0]; g += p[1]; bl += p[2] }
+    return [Math.round(r / b.length), Math.round(g / b.length), Math.round(bl / b.length)] as [number, number, number]
+  })
+}
+
+function findNearest(palette: [number, number, number][], r: number, g: number, b: number): [number, number, number] {
+  let minDist = Infinity
+  let best = palette[0]
+  for (const c of palette) {
+    const d = (r - c[0]) ** 2 + (g - c[1]) ** 2 + (b - c[2]) ** 2
+    if (d < minDist) { minDist = d; best = c }
+  }
+  return best
+}
+
+function distributeError(data: Uint8ClampedArray, w: number, h: number, x: number, y: number, errR: number, errG: number, errB: number) {
+  const diffuse = [
+    [x + 1, y, 7 / 16],
+    [x - 1, y + 1, 3 / 16],
+    [x, y + 1, 5 / 16],
+    [x + 1, y + 1, 1 / 16],
+  ] as const
+
+  for (const [dx, dy, factor] of diffuse) {
+    if (dx < 0 || dx >= w || dy >= h) continue
+    const i = (dy * w + dx) * 4
+    data[i] = Math.min(255, Math.max(0, data[i] + errR * factor))
+    data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + errG * factor))
+    data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + errB * factor))
+  }
+}
+
+function drawOutlines(ctx: CanvasRenderingContext2D, imgData: ImageData, pixelSize: number, _w: number, _h: number) {
+  const data = imgData.data
+  const iw = imgData.width
+  const ih = imgData.height
+
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)'
+  ctx.lineWidth = 1
+
+  for (let y = 0; y < ih; y++) {
+    for (let x = 0; x < iw; x++) {
+      const i = (y * iw + x) * 4
+      const r = data[i], g = data[i + 1], b = data[i + 2]
+
+      // Check right neighbor
+      if (x < iw - 1) {
+        const j = (y * iw + x + 1) * 4
+        if (data[j] !== r || data[j + 1] !== g || data[j + 2] !== b) {
+          ctx.beginPath()
+          ctx.moveTo((x + 1) * pixelSize, y * pixelSize)
+          ctx.lineTo((x + 1) * pixelSize, (y + 1) * pixelSize)
+          ctx.stroke()
+        }
+      }
+      // Check bottom neighbor
+      if (y < ih - 1) {
+        const j = ((y + 1) * iw + x) * 4
+        if (data[j] !== r || data[j + 1] !== g || data[j + 2] !== b) {
+          ctx.beginPath()
+          ctx.moveTo(x * pixelSize, (y + 1) * pixelSize)
+          ctx.lineTo((x + 1) * pixelSize, (y + 1) * pixelSize)
+          ctx.stroke()
+        }
+      }
+    }
+  }
+}

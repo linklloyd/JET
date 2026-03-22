@@ -1,0 +1,745 @@
+import { useState, useRef, useEffect, useCallback } from 'react'
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
+import { FileDropzone } from '../../components/ui/FileDropzone'
+import { Button } from '../../components/ui/Button'
+import { Select } from '../../components/ui/Select'
+import { Slider } from '../../components/ui/Slider'
+import { ProgressBar } from '../../components/ui/ProgressBar'
+import { Play, Pause, Camera, Loader2, ImagePlus, Download, FlipVertical } from 'lucide-react'
+import { downloadBlob, canvasToBlob, fileToDataURL } from '../../lib/utils'
+import { presets, directionLabels } from './presets'
+
+export function Spritesheet3DPage() {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+  const sceneRef = useRef<THREE.Scene | null>(null)
+  const cameraRef = useRef<THREE.PerspectiveCamera>(null)
+  const controlsRef = useRef<OrbitControls | null>(null)
+  const mixerRef = useRef<THREE.AnimationMixer | null>(null)
+  const modelRef = useRef<THREE.Object3D | null>(null)
+  const clockRef = useRef(new THREE.Clock())
+  const animFrameRef = useRef<number>(0)
+  const playingRef = useRef(true)
+  const modelUrlRef = useRef<string | null>(null)
+  const textureInputRef = useRef<HTMLInputElement>(null)
+  const modelFormatRef = useRef<'fbx' | 'gltf'>('fbx')
+
+  const [modelLoaded, setModelLoaded] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [animations, setAnimations] = useState<THREE.AnimationClip[]>([])
+  const [selectedAnim, setSelectedAnim] = useState(0)
+  const [playing, setPlaying] = useState(true)
+  const [presetKey, setPresetKey] = useState('rpg8')
+  const [frameCount, setFrameCount] = useState(8)
+  const [captureSize, setCaptureSize] = useState(128)
+  const [cameraDistance, setCameraDistance] = useState(3)
+  const [elevation, setElevation] = useState(55)
+  const [capturing, setCapturing] = useState(false)
+  const [captureProgress, setCaptureProgress] = useState(0)
+  const [modelInfo, setModelInfo] = useState('')
+  const [bgColor, setBgColor] = useState<'transparent' | 'green' | 'blue'>('transparent')
+  const [capturedImage, setCapturedImage] = useState<string | null>(null)
+  const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null)
+  const [textureFlipY, setTextureFlipY] = useState(true)
+
+  const currentPreset = presets[presetKey]
+
+  useEffect(() => { playingRef.current = playing }, [playing])
+
+  // Init scene
+  useEffect(() => {
+    if (!containerRef.current) return
+
+    const scene = new THREE.Scene()
+    sceneRef.current = scene
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true,
+    })
+    renderer.setPixelRatio(window.devicePixelRatio)
+    renderer.setClearColor(0x000000, 0)
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.0
+
+    const container = containerRef.current
+    const size = Math.min(container.clientWidth, 500)
+    renderer.setSize(size, size)
+    container.appendChild(renderer.domElement)
+    rendererRef.current = renderer
+
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000)
+    camera.position.set(0, 1.5, 4)
+    cameraRef.current = camera
+
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.dampingFactor = 0.1
+    controls.target.set(0, 1, 0)
+    controls.update()
+    controlsRef.current = controls
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5)
+    scene.add(ambientLight)
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.0)
+    dirLight.position.set(5, 10, 7)
+    scene.add(dirLight)
+    const backLight = new THREE.DirectionalLight(0xffffff, 0.8)
+    backLight.position.set(-5, 5, -5)
+    scene.add(backLight)
+
+    const gridHelper = new THREE.GridHelper(10, 10, 0xcccccc, 0xeeeeee)
+    gridHelper.name = '__grid'
+    scene.add(gridHelper)
+
+    const animate = () => {
+      animFrameRef.current = requestAnimationFrame(animate)
+      const delta = clockRef.current.getDelta()
+      if (mixerRef.current && playingRef.current) {
+        mixerRef.current.update(delta)
+      }
+      controls.update()
+      renderer.render(scene, camera)
+    }
+    animate()
+
+    const handleResize = () => {
+      if (!container) return
+      const s = Math.min(container.clientWidth, 500)
+      renderer.setSize(s, s)
+    }
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      cancelAnimationFrame(animFrameRef.current)
+      renderer.dispose()
+      controls.dispose()
+      if (container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement)
+      }
+    }
+  }, [])
+
+  const clearModel = useCallback(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    if (modelRef.current) {
+      scene.remove(modelRef.current)
+      modelRef.current.traverse((child) => {
+        if ((child as THREE.Mesh).geometry) (child as THREE.Mesh).geometry.dispose()
+        if ((child as THREE.Mesh).material) {
+          const mat = (child as THREE.Mesh).material
+          if (Array.isArray(mat)) mat.forEach((m) => m.dispose())
+          else (mat as THREE.Material).dispose()
+        }
+      })
+      modelRef.current = null
+    }
+    if (mixerRef.current) {
+      mixerRef.current.stopAllAction()
+      mixerRef.current = null
+    }
+    if (modelUrlRef.current) {
+      URL.revokeObjectURL(modelUrlRef.current)
+      modelUrlRef.current = null
+    }
+    setAnimations([])
+    setSelectedAnim(0)
+    setModelLoaded(false)
+    setModelInfo('')
+    setLoadError('')
+    setCapturedImage(null)
+    setCapturedBlob(null)
+  }, [])
+
+  const loadModel = useCallback(async (file: File) => {
+    const scene = sceneRef.current
+    if (!scene) return
+
+    clearModel()
+
+    const url = URL.createObjectURL(file)
+    modelUrlRef.current = url
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    modelFormatRef.current = ext === 'fbx' ? 'fbx' : 'gltf'
+
+    let object: THREE.Object3D
+    let clips: THREE.AnimationClip[] = []
+
+    try {
+      setLoadError('')
+      if (ext === 'fbx') {
+        const loader = new FBXLoader()
+        const fbx = await loader.loadAsync(url)
+        object = fbx
+        clips = fbx.animations || []
+      } else {
+        const loader = new GLTFLoader()
+        const gltf = await loader.loadAsync(url)
+        object = gltf.scene
+        clips = gltf.animations || []
+      }
+    } catch (err) {
+      setLoadError(`Failed to load model: ${err instanceof Error ? err.message : 'Unknown error'}`)
+      URL.revokeObjectURL(url)
+      modelUrlRef.current = null
+      return
+    }
+
+    // Fix materials for visibility
+    object.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        materials.forEach((mat) => {
+          if (!mat) return
+          mat.side = THREE.DoubleSide
+          if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+            const stdMat = mat as THREE.MeshStandardMaterial
+            if (!stdMat.map) {
+              const lum = stdMat.color.r + stdMat.color.g + stdMat.color.b
+              if (lum < 0.1) stdMat.color.set(0x888888)
+            }
+            stdMat.metalness = Math.min(stdMat.metalness, 0.5)
+            stdMat.roughness = Math.max(stdMat.roughness, 0.3)
+          }
+          if ((mat as THREE.MeshPhongMaterial).isMeshPhongMaterial) {
+            const phongMat = mat as THREE.MeshPhongMaterial
+            const lum = phongMat.color.r + phongMat.color.g + phongMat.color.b
+            if (lum < 0.1) phongMat.color.set(0x888888)
+          }
+        })
+      }
+    })
+
+    // Normalize: center and scale
+    const box = new THREE.Box3().setFromObject(object)
+    const center = box.getCenter(new THREE.Vector3())
+    const size = box.getSize(new THREE.Vector3())
+    const maxDim = Math.max(size.x, size.y, size.z)
+
+    if (maxDim === 0) {
+      setLoadError('Model appears to be empty (zero size).')
+      return
+    }
+
+    const targetHeight = 2
+    const scaleFactor = targetHeight / maxDim
+    const wrapper = new THREE.Group()
+    wrapper.add(object)
+    object.position.set(-center.x, -center.y + size.y / 2, -center.z)
+    wrapper.scale.setScalar(scaleFactor)
+
+    scene.add(wrapper)
+    modelRef.current = wrapper
+
+    if (cameraRef.current && controlsRef.current) {
+      cameraRef.current.position.set(0, 1.2, 4)
+      controlsRef.current.target.set(0, 1, 0)
+      controlsRef.current.update()
+    }
+
+    if (clips.length > 0) {
+      const mixer = new THREE.AnimationMixer(object)
+      mixerRef.current = mixer
+      mixer.clipAction(clips[0]).play()
+      setAnimations(clips)
+      setSelectedAnim(0)
+      clockRef.current.getDelta()
+    }
+
+    let vertCount = 0
+    let hasTextures = false
+    object.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh
+        if (mesh.geometry) vertCount += mesh.geometry.attributes.position?.count ?? 0
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        mats.forEach((m: any) => {
+          if (m?.map) hasTextures = true
+        })
+      }
+    })
+
+    setModelInfo(
+      `${(vertCount / 1000).toFixed(1)}k verts | ${clips.length} anim${clips.length !== 1 ? 's' : ''} | ${hasTextures ? 'Textured' : 'No textures'}`
+    )
+    setModelLoaded(true)
+  }, [clearModel])
+
+  const applyTexture = useCallback(async (file: File, flipY?: boolean) => {
+    if (!modelRef.current) return
+    const url = await fileToDataURL(file)
+
+    const flip = flipY ?? textureFlipY
+
+    return new Promise<void>((resolve) => {
+      const loader = new THREE.TextureLoader()
+      loader.load(url, (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace
+        // FBX models exported from Mixamo: UVs expect flipY = true (default)
+        // GLTF models: flipY = false (glTF spec)
+        texture.flipY = flip
+        texture.wrapS = THREE.RepeatWrapping
+        texture.wrapT = THREE.RepeatWrapping
+        texture.needsUpdate = true
+
+        modelRef.current!.traverse((child) => {
+          if (!(child as THREE.Mesh).isMesh) return
+          const mesh = child as THREE.Mesh
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+
+          materials.forEach((mat, idx) => {
+            if (!mat) return
+
+            // Create a fresh MeshStandardMaterial with the texture
+            const newMat = new THREE.MeshStandardMaterial({
+              map: texture,
+              side: THREE.DoubleSide,
+              metalness: 0.1,
+              roughness: 0.7,
+              color: new THREE.Color(0xffffff),
+            })
+
+            if (Array.isArray(mesh.material)) {
+              (mesh.material as THREE.Material[])[idx] = newMat
+            } else {
+              mesh.material = newMat
+            }
+          })
+        })
+
+        setModelInfo((prev) => prev.replace(/No textures|Textured.*/, 'Textured (applied)'))
+        resolve()
+      })
+    })
+  }, [textureFlipY])
+
+  const handleToggleFlipY = useCallback(async () => {
+    const newFlip = !textureFlipY
+    setTextureFlipY(newFlip)
+
+    // Re-apply existing textures with flipped Y
+    if (!modelRef.current) return
+    modelRef.current.traverse((child) => {
+      if (!(child as THREE.Mesh).isMesh) return
+      const mesh = child as THREE.Mesh
+      const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+      materials.forEach((mat: any) => {
+        if (mat?.map) {
+          mat.map.flipY = newFlip
+          mat.map.needsUpdate = true
+          mat.needsUpdate = true
+        }
+      })
+    })
+  }, [textureFlipY])
+
+  const handleAnimChange = (index: number) => {
+    setSelectedAnim(index)
+    if (!mixerRef.current || !animations[index]) return
+    mixerRef.current.stopAllAction()
+    mixerRef.current.clipAction(animations[index]).play()
+    clockRef.current.getDelta()
+  }
+
+  const handleCapture = async () => {
+    const scene = sceneRef.current
+    const model = modelRef.current
+    if (!scene || !model) return
+
+    setCapturing(true)
+    setCaptureProgress(0)
+    setCapturedImage(null)
+    setCapturedBlob(null)
+
+    const preset = presets[presetKey]
+    const angles = preset.angles
+    const elev = presetKey === 'custom' ? elevation : preset.elevation
+    const clip = animations[selectedAnim]
+    const totalFrames = angles.length * frameCount
+    let captured = 0
+
+    const captureRenderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true,
+    })
+    captureRenderer.setSize(captureSize, captureSize)
+    captureRenderer.setPixelRatio(1)
+    captureRenderer.outputColorSpace = THREE.SRGBColorSpace
+    captureRenderer.toneMapping = THREE.ACESFilmicToneMapping
+
+    if (bgColor === 'transparent') captureRenderer.setClearColor(0x000000, 0)
+    else if (bgColor === 'green') captureRenderer.setClearColor(0x00ff00, 1)
+    else captureRenderer.setClearColor(0x0000ff, 1)
+
+    let captureCamera: THREE.Camera
+    if (preset.useOrthographic) {
+      const frustumSize = cameraDistance
+      captureCamera = new THREE.OrthographicCamera(
+        -frustumSize / 2, frustumSize / 2,
+        frustumSize / 2, -frustumSize / 2,
+        0.01, 1000
+      )
+    } else {
+      captureCamera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000)
+    }
+
+    // Clean scene for capture (no grid)
+    const captureScene = new THREE.Scene()
+    captureScene.add(new THREE.AmbientLight(0xffffff, 1.5))
+    const dLight = new THREE.DirectionalLight(0xffffff, 2.0)
+    dLight.position.set(5, 10, 7)
+    captureScene.add(dLight)
+    const bLight = new THREE.DirectionalLight(0xffffff, 0.8)
+    bLight.position.set(-5, 5, -5)
+    captureScene.add(bLight)
+    captureScene.add(model)
+
+    const sheetCanvas = document.createElement('canvas')
+    sheetCanvas.width = frameCount * captureSize
+    sheetCanvas.height = angles.length * captureSize
+    const sheetCtx = sheetCanvas.getContext('2d')!
+
+    const mixer = mixerRef.current
+    if (mixer && clip) {
+      mixer.stopAllAction()
+      mixer.clipAction(clip).play()
+    }
+
+    for (let angleIdx = 0; angleIdx < angles.length; angleIdx++) {
+      const angleDeg = angles[angleIdx]
+      const angleRad = (angleDeg * Math.PI) / 180
+      const elevRad = (elev * Math.PI) / 180
+
+      captureCamera.position.set(
+        cameraDistance * Math.sin(angleRad) * Math.cos(elevRad),
+        1 + cameraDistance * Math.sin(elevRad),
+        cameraDistance * Math.cos(angleRad) * Math.cos(elevRad)
+      )
+      captureCamera.lookAt(0, 1, 0)
+
+      for (let frame = 0; frame < frameCount; frame++) {
+        if (mixer && clip) {
+          mixer.setTime((clip.duration * frame) / frameCount)
+        }
+        captureRenderer.render(captureScene, captureCamera)
+        sheetCtx.drawImage(captureRenderer.domElement, frame * captureSize, angleIdx * captureSize)
+
+        captured++
+        setCaptureProgress(Math.round((captured / totalFrames) * 100))
+        await new Promise((r) => setTimeout(r, 0))
+      }
+    }
+
+    // Move model back to main scene
+    scene.add(model)
+
+    if (mixer && clip) {
+      mixer.stopAllAction()
+      mixer.clipAction(clip).play()
+      clockRef.current.getDelta()
+    }
+
+    captureRenderer.dispose()
+
+    // Show preview instead of auto-downloading
+    const blob = await canvasToBlob(sheetCanvas)
+    const previewUrl = URL.createObjectURL(blob)
+    setCapturedImage(previewUrl)
+    setCapturedBlob(blob)
+    setCapturing(false)
+    setCaptureProgress(100)
+  }
+
+  const handleDownloadSheet = () => {
+    if (!capturedBlob) return
+    downloadBlob(capturedBlob, `spritesheet_${presetKey}_${frameCount}f.png`)
+  }
+
+  const handleFiles = (files: File[]) => {
+    loadModel(files[0])
+  }
+
+  const lastTextureFileRef = useRef<File | null>(null)
+  const handleTextureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files?.[0]) {
+      lastTextureFileRef.current = files[0]
+      // FBX default flipY=true, GLTF default flipY=false
+      const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
+      setTextureFlipY(defaultFlip)
+      applyTexture(files[0], defaultFlip)
+    }
+    e.target.value = ''
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-zinc-900">3D Spritesheet Generator</h2>
+        <p className="text-sm text-zinc-500 mt-2">
+          Load a 3D model with animations (FBX from Mixamo), capture from multiple angles
+        </p>
+      </div>
+
+      <FileDropzone
+        onFiles={handleFiles}
+        accept=".fbx,.glb,.gltf"
+        label="Drop your 3D model here (FBX or GLB)"
+        description="FBX recommended for Mixamo models"
+      />
+
+      {loadError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <p className="text-sm text-red-700">{loadError}</p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-[1fr_320px] gap-6">
+        {/* 3D Viewport */}
+        <div className="space-y-3">
+          <div className="bg-white border border-zinc-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-zinc-500">3D Preview</p>
+              <div className="flex items-center gap-1">
+                {modelLoaded && (
+                  <>
+                    <button
+                      onClick={() => textureInputRef.current?.click()}
+                      className="text-zinc-400 hover:text-zinc-600 p-1.5 rounded hover:bg-zinc-100"
+                      title="Apply texture"
+                    >
+                      <ImagePlus size={15} />
+                    </button>
+                    <input
+                      ref={textureInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleTextureUpload}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={handleToggleFlipY}
+                      className="text-zinc-400 hover:text-zinc-600 p-1.5 rounded hover:bg-zinc-100"
+                      title={`Flip texture UV (currently flipY=${textureFlipY})`}
+                    >
+                      <FlipVertical size={15} />
+                    </button>
+                    <button
+                      onClick={() => setPlaying(!playing)}
+                      className="text-zinc-400 hover:text-zinc-600 p-1.5 rounded hover:bg-zinc-100"
+                      title={playing ? 'Pause' : 'Play'}
+                    >
+                      {playing ? <Pause size={15} /> : <Play size={15} />}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            <div
+              ref={containerRef}
+              className="w-full aspect-square bg-zinc-50 rounded overflow-hidden"
+              style={{
+                backgroundImage: 'repeating-conic-gradient(#e4e4e7 0% 25%, #f4f4f5 0% 50%)',
+                backgroundSize: '20px 20px',
+              }}
+            />
+          </div>
+
+          {modelLoaded && (
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-zinc-500">{modelInfo}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleToggleFlipY}
+                  className="text-xs text-zinc-500 hover:text-zinc-700 flex items-center gap-1"
+                  title="Toggle UV flip direction if texture appears mirrored/inverted"
+                >
+                  <FlipVertical size={11} /> Flip UV
+                </button>
+                <button
+                  onClick={() => textureInputRef.current?.click()}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                >
+                  <ImagePlus size={12} /> Apply Texture
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Captured spritesheet preview */}
+          {capturedImage && (
+            <div className="bg-white border border-zinc-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Spritesheet Output</p>
+                <Button onClick={handleDownloadSheet} size="sm">
+                  <Download size={12} /> Download PNG
+                </Button>
+              </div>
+              <div
+                className="overflow-auto max-h-80 rounded"
+                style={{
+                  backgroundImage: 'repeating-conic-gradient(#e4e4e7 0% 25%, #f4f4f5 0% 50%)',
+                  backgroundSize: '12px 12px',
+                }}
+              >
+                <img
+                  src={capturedImage}
+                  alt="Captured spritesheet"
+                  className="max-w-full"
+                  style={{ imageRendering: 'pixelated' }}
+                />
+              </div>
+              <p className="text-[11px] text-zinc-400 mt-2">
+                {currentPreset.angles.length} angles × {frameCount} frames = {currentPreset.angles.length * frameCount} total |{' '}
+                {frameCount * captureSize} × {currentPreset.angles.length * captureSize}px
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Controls */}
+        <div className="space-y-4">
+          {animations.length > 0 && (
+            <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
+              <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Animation</p>
+              <Select
+                label="Clip"
+                options={animations.map((clip, i) => ({
+                  value: String(i),
+                  label: clip.name || `Animation ${i + 1}`,
+                }))}
+                value={String(selectedAnim)}
+                onChange={(e) => handleAnimChange(Number(e.target.value))}
+              />
+            </div>
+          )}
+
+          <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
+            <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Capture Settings</p>
+
+            <Select
+              label="Preset"
+              options={Object.entries(presets).map(([key, p]) => ({
+                value: key,
+                label: p.name,
+              }))}
+              value={presetKey}
+              onChange={(e) => {
+                setPresetKey(e.target.value)
+                const p = presets[e.target.value]
+                if (p) setElevation(p.elevation)
+              }}
+            />
+
+            <p className="text-[11px] text-zinc-500">{currentPreset.description}</p>
+            <p className="text-[11px] text-zinc-400">
+              Angles: {currentPreset.angles.map((a) => directionLabels[a] || `${a}°`).join(', ')}
+            </p>
+
+            {presetKey === 'custom' && (
+              <Slider
+                label="Elevation"
+                displayValue={`${elevation}°`}
+                min={0} max={90} value={elevation}
+                onChange={(e) => setElevation(Number((e.target as HTMLInputElement).value))}
+              />
+            )}
+
+            <Slider
+              label="Frames per angle"
+              displayValue={String(frameCount)}
+              min={1} max={32} value={frameCount}
+              onChange={(e) => setFrameCount(Number((e.target as HTMLInputElement).value))}
+            />
+
+            <Slider
+              label="Frame size"
+              displayValue={`${captureSize}px`}
+              min={32} max={512} step={32} value={captureSize}
+              onChange={(e) => setCaptureSize(Number((e.target as HTMLInputElement).value))}
+            />
+
+            <Slider
+              label="Camera distance"
+              displayValue={String(cameraDistance)}
+              min={1} max={10} step={0.5} value={cameraDistance}
+              onChange={(e) => setCameraDistance(Number((e.target as HTMLInputElement).value))}
+            />
+
+            <Select
+              label="Background"
+              options={[
+                { value: 'transparent', label: 'Transparent' },
+                { value: 'green', label: 'Green Screen' },
+                { value: 'blue', label: 'Blue Screen' },
+              ]}
+              value={bgColor}
+              onChange={(e) => setBgColor(e.target.value as typeof bgColor)}
+            />
+
+            {/* Texture controls */}
+            <div className="pt-2 border-t border-zinc-100 space-y-2">
+              <p className="text-[11px] font-medium text-zinc-500">Texture</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => textureInputRef.current?.click()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 text-xs font-medium text-zinc-600 hover:bg-zinc-200 transition-colors flex-1"
+                >
+                  <ImagePlus size={13} /> Apply Texture
+                </button>
+                <button
+                  onClick={handleToggleFlipY}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 text-xs font-medium text-zinc-600 hover:bg-zinc-200 transition-colors"
+                  title={`Toggle UV flip (flipY=${textureFlipY})`}
+                >
+                  <FlipVertical size={13} /> Flip UV
+                </button>
+              </div>
+              <p className="text-[10px] text-zinc-400">
+                Upload a texture if the model lost its textures. Use Flip UV if the texture appears mirrored.
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
+            <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Export</p>
+            <p className="text-xs text-zinc-500">
+              Output: {currentPreset.angles.length * frameCount} frames
+              ({currentPreset.angles.length} angles × {frameCount} frames)
+              <br />
+              Sheet: {frameCount * captureSize} × {currentPreset.angles.length * captureSize}px
+            </p>
+
+            {capturing && (
+              <div className="space-y-1">
+                <ProgressBar value={captureProgress} />
+                <p className="text-xs text-zinc-500">Capturing... {captureProgress}%</p>
+              </div>
+            )}
+
+            <Button
+              onClick={handleCapture}
+              disabled={!modelLoaded || capturing}
+              className="w-full"
+            >
+              {capturing ? (
+                <><Loader2 size={16} className="animate-spin" /> Capturing...</>
+              ) : (
+                <><Camera size={16} /> Capture Spritesheet</>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
