@@ -3,7 +3,7 @@ import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
 import { Slider } from '../../components/ui/Slider'
 import { Select } from '../../components/ui/Select'
-import { Download, Upload, Plus, Trash2, Eye, EyeOff, Paintbrush, Eraser, PaintBucket, MousePointer, Grid3x3 } from 'lucide-react'
+import { Download, Upload, Plus, Trash2, Eye, EyeOff, Paintbrush, Eraser, PaintBucket, Grid3x3 } from 'lucide-react'
 import { fileToDataURL, loadImage, downloadBlob, canvasToBlob } from '../../lib/utils'
 import { type AutotileGroup, recalcAutotileRegion } from '../../lib/autotile'
 

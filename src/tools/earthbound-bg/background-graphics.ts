@@ -4,8 +4,6 @@
  */
 
 import { readBlock, snesToHex } from './rom'
-import type { BackgroundPalette } from './background-palette'
-import type { PaletteCycle } from './palette-cycle'
 
 /** Palette-like interface that both BackgroundPalette and PaletteCycle share */
 interface PaletteProvider {

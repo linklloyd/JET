@@ -66,7 +66,7 @@ export class Engine {
       if (elapsed > fpsInterval) {
         then = now - (elapsed % fpsInterval)
 
-        let bitmap = image.data
+        let bitmap: Uint8ClampedArray = image.data
         for (let i = 0; i < this.layers.length; ++i) {
           if (this.layers[i].entry < 0) continue
           bitmap = this.layers[i].overlayFrame(
@@ -75,7 +75,7 @@ export class Engine {
             this.tick,
             this.alpha[i],
             i === 0
-          )
+          ) as Uint8ClampedArray
         }
 
         this.tick += this.frameSkip
@@ -115,7 +115,7 @@ export class Engine {
     this.canvas.height = SNES_HEIGHT
     const image = context.getImageData(0, 0, SNES_WIDTH, SNES_HEIGHT)
 
-    let bitmap = image.data
+    let bitmap: Uint8ClampedArray = image.data
     for (let i = 0; i < this.layers.length; ++i) {
       if (this.layers[i].entry < 0) continue
       bitmap = this.layers[i].overlayFrame(
@@ -124,7 +124,7 @@ export class Engine {
         this.tick,
         this.alpha[i],
         i === 0
-      )
+      ) as Uint8ClampedArray
     }
 
     this.tick += this.frameSkip

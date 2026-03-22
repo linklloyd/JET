@@ -136,7 +136,7 @@ export async function spriteToGif(
 
   const delay = Math.round(1000 / config.fps)
   const gifBytes = encodeGif(outW, outH, frames, delay)
-  return new Blob([gifBytes], { type: 'image/gif' })
+  return new Blob([gifBytes as BlobPart], { type: 'image/gif' })
 }
 
 // ---------------------------------------------------------------------------

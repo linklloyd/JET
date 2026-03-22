@@ -290,14 +290,4 @@ export function customDiscreteBase(entries: DiscreteEntry[]): DistBaseResult {
   }
 }
 
-// ─── Unicode superscript helper ─────────────────────────────────────────
 
-const SUPS: Record<string, string> = {
-  '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
-  '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
-  '-': '⁻',
-}
-
-function toSup(n: number): string {
-  return String(n).split('').map((c) => SUPS[c] ?? c).join('')
-}

@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
-import { ChevronDown, ChevronRight, Calculator, Plus, Trash2, Copy, ClipboardPaste } from 'lucide-react'
+import { ChevronDown, ChevronRight, Calculator, Copy, ClipboardPaste } from 'lucide-react'
 import {
   multiply,
   echelon,
@@ -48,7 +48,6 @@ const VALID_OPS: OperationType[] = ['multiplication', 'echelon', 'inverse', 'det
 
 export function MatricesPage() {
   const { opType: opParam } = useParams<{ opType: string }>()
-  const navigate = useNavigate()
   const opType: OperationType = VALID_OPS.includes(opParam as OperationType) ? (opParam as OperationType) : 'multiplication'
   const [result, setResult] = useState<OperationResult | null>(null)
   const [systemResult, setSystemResult] = useState<SystemResult | null>(null)
@@ -84,11 +83,6 @@ export function MatricesPage() {
     setResult(null)
     setSystemResult(null)
     setError(null)
-  }
-
-  const handleOpChange = (op: OperationType) => {
-    navigate(`/matrices/${op}`)
-    resetResults()
   }
 
   const calculate = useCallback(() => {
@@ -363,6 +357,17 @@ export function MatricesPage() {
               </select>
               <span className="text-[10px] text-zinc-400">ecuaciones</span>
             </div>
+            <SystemCopyPaste
+              coeffs={sysCoeffs}
+              constants={sysConstants}
+              size={sysSize}
+              onPaste={(coeffs, constants, size) => {
+                setSysSize(size)
+                setSysVars(prev => Array.from({ length: size }, (_, i) => prev[i] || `x${i + 1}`))
+                setSysCoeffs(coeffs)
+                setSysConstants(constants)
+              }}
+            />
           </div>
 
           {/* Variable names */}
@@ -451,7 +456,7 @@ export function MatricesPage() {
           )}
 
           {/* Cofactors extra: Adjugate */}
-          {opType === 'cofactors' && result.extra?.adjugate && (
+          {opType === 'cofactors' && !!result.extra?.adjugate && (
             <div className="bg-white border border-zinc-200 rounded-lg p-4">
               <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide mb-3">Adj(B) — Adjunta</p>
               <MatrixDisplay matrix={result.extra.adjugate as Matrix} />
@@ -571,6 +576,59 @@ function CopyPasteButtons({ matrix, rows, cols, onPaste }: {
         onClick={handlePaste}
         className="p-1 rounded text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
         title="Paste matrix"
+      >
+        <ClipboardPaste size={13} />
+      </button>
+      {copied && <span className="text-[10px] text-green-600 font-medium">Copied!</span>}
+    </div>
+  )
+}
+
+function SystemCopyPaste({ coeffs, constants, size, onPaste }: {
+  coeffs: Matrix
+  constants: number[]
+  size: number
+  onPaste: (coeffs: Matrix, constants: number[], size: number) => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    // Copy as augmented matrix [A | b] with tab separation
+    const text = Array.from({ length: size }, (_, i) =>
+      [...Array.from({ length: size }, (_, j) => coeffs[i]?.[j] ?? 0), constants[i] ?? 0].join('\t')
+    ).join('\n')
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      const parsed = clipboardToMatrix(text)
+      if (!parsed || parsed.cols < 2) return
+      const n = Math.min(parsed.rows, parsed.cols - 1, 7)
+      const newCoeffs = Array.from({ length: n }, (_, i) =>
+        Array.from({ length: n }, (_, j) => parsed.matrix[i]?.[j] ?? 0)
+      )
+      const newConstants = Array.from({ length: n }, (_, i) => parsed.matrix[i]?.[n] ?? 0)
+      onPaste(newCoeffs, newConstants, n)
+    } catch { /* clipboard permission denied */ }
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={handleCopy}
+        className="p-1 rounded text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+        title="Copy system as augmented matrix [A|b]"
+      >
+        <Copy size={13} />
+      </button>
+      <button
+        onClick={handlePaste}
+        className="p-1 rounded text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+        title="Paste augmented matrix [A|b]"
       >
         <ClipboardPaste size={13} />
       </button>
@@ -717,7 +775,7 @@ function MatrixDisplay({ matrix, separatorCol }: { matrix: Matrix; separatorCol?
         <div className="grid gap-1" style={{ gridTemplateColumns: gridCols }}>
           {matrix.map((row, i) =>
             row.flatMap((val, j) => {
-              const cells = []
+              const cells: React.ReactNode[] = []
               if (hasSep && j === separatorCol) {
                 cells.push(
                   <div key={`sep-${i}`} className="flex items-center justify-center px-0.5 text-zinc-400 font-mono text-sm select-none">

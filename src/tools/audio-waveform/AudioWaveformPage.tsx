@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
 import { Slider } from '../../components/ui/Slider'
-import { Select } from '../../components/ui/Select'
 import { Download, Play, Pause, Loader2, Scissors } from 'lucide-react'
 import { downloadBlob, formatFileSize, canvasToBlob } from '../../lib/utils'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
@@ -271,7 +270,7 @@ export function AudioWaveformPage() {
       ])
 
       const data = await ffmpeg.readFile(outputName)
-      const blob = new Blob([data], { type: audioFile.type || 'audio/mpeg' })
+      const blob = new Blob([data as BlobPart], { type: audioFile.type || 'audio/mpeg' })
       const name = audioFile.name.replace(/(\.[^.]+)$/, `_trimmed$1`)
       downloadBlob(blob, name)
 

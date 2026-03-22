@@ -674,7 +674,17 @@ export function cofactors(matrix: Matrix): OperationResult {
       const minorDet = determinantValue(minor)
       B[i][j] = Math.pow(-1, i + j) * minorDet
       if (Math.abs(B[i][j]) < 1e-12) B[i][j] = 0
-      calcs.push(`B${sub((i + 1) * 10 + (j + 1))} = (-1)${sup(i + j)} × |M${sub((i + 1) * 10 + (j + 1))}| = ${fmtNum(B[i][j])}`)
+      const mLabel = `M${sub((i + 1) * 10 + (j + 1))}`
+      const mLines = matrixToString(minor).split('\n')
+      const mFormatted = mLines.map((line, li) =>
+        li === 0 ? `  ${mLabel} = ${line}` : `  ${' '.repeat(mLabel.length + 3)}${line}`
+      ).join('\n')
+      calcs.push(
+        `B${sub((i + 1) * 10 + (j + 1))} = (-1)${sup(i + j)} × |${mLabel}|\n` +
+        mFormatted + '\n' +
+        `  |${mLabel}| = ${fmtNum(minorDet)}\n` +
+        `  B${sub((i + 1) * 10 + (j + 1))} = ${fmtNum(B[i][j])}`
+      )
     }
   }
 
@@ -995,7 +1005,7 @@ function montante(coeff: Matrix, constants: number[], variables: string[]): Syst
   return { solution, steps, variables, verification }
 }
 
-function verifySystem(coeff: Matrix, constants: number[], solution: number[], variables: string[]): string[] {
+function verifySystem(coeff: Matrix, constants: number[], solution: number[], _variables: string[]): string[] {
   const n = coeff.length
   const lines: string[] = []
 

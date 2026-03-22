@@ -192,7 +192,7 @@ export function EarthboundBGPage() {
       // Encode GIF (delay in centiseconds: 1000ms/30fps = 33ms ≈ 3cs)
       await new Promise(r => setTimeout(r, 10))
       const gifData = encodeGif(SNES_WIDTH, SNES_HEIGHT, frames, 3)
-      const blob = new Blob([gifData], { type: 'image/gif' })
+      const blob = new Blob([gifData as BlobPart], { type: 'image/gif' })
       downloadBlob(blob, `eb-bg-${layer1}-${layer2}.gif`)
     } catch (err) {
       console.error('GIF export error:', err)

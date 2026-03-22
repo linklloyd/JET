@@ -49,24 +49,6 @@ export function SpriteAnimatorPage() {
     setFrameStart(0)
   }, [totalFrames])
 
-  const drawFrame = useCallback((frameIdx: number, canvas: HTMLCanvasElement, alpha = 1) => {
-    if (!image) return
-    const col = frameIdx % cols
-    const row = Math.floor(frameIdx / cols)
-    const displayW = frameW * scale
-    const displayH = frameH * scale
-    canvas.width = displayW
-    canvas.height = displayH
-    const ctx = canvas.getContext('2d')!
-    ctx.imageSmoothingEnabled = false
-
-    if (alpha < 1) {
-      ctx.globalAlpha = alpha
-    }
-    ctx.drawImage(image, col * frameW, row * frameH, frameW, frameH, 0, 0, displayW, displayH)
-    ctx.globalAlpha = 1
-  }, [image, cols, frameW, frameH, scale])
-
   // Animation loop
   const animate = useCallback((time: number) => {
     if (!image || !canvasRef.current) {

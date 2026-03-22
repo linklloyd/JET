@@ -1,9 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
-import { Select } from '../../components/ui/Select'
 import {
-  Play, Plus, X, Download, Loader2, ChevronRight, Save, FolderOpen,
+  Play, Plus, X, Download, Loader2, ChevronRight, Save,
   Trash2, ArrowDown, CheckCircle2, AlertCircle, Grid3X3, Film,
   PaintBucket, FileType, ZoomIn, Maximize2, Box, Droplets, SwatchBook,
   ArrowRight,
@@ -398,9 +397,9 @@ export function PipelinePage() {
                                   className="text-[11px] text-zinc-600 file:mr-2 file:py-0.5 file:px-2 file:rounded file:border-0 file:text-[11px] file:bg-zinc-100 file:text-zinc-600 file:cursor-pointer"
                                   disabled={running}
                                 />
-                                {step.config[field.key] && (
+                                {step.config[field.key] ? (
                                   <span className="text-[10px] text-green-600">✓</span>
-                                )}
+                                ) : null}
                               </div>
                             )}
                             {field.type === 'color' && (

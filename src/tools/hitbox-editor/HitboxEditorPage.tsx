@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
-import { Download, Plus, Trash2, SkipBack, SkipForward, Copy, Square, Circle } from 'lucide-react'
+import { Download, Trash2, SkipBack, SkipForward, Copy, Square, Circle } from 'lucide-react'
 import { fileToDataURL, loadImage, downloadBlob } from '../../lib/utils'
 import { PreviewCanvas } from '../../components/ui/PreviewCanvas'
 

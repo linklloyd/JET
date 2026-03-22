@@ -440,7 +440,7 @@ export function GlitchLabPage() {
         frames.push(renderEffects(sourceData, effects, frameSeed))
       }
       const gifData = encodeGif(w, h, frames, 100)
-      const blob = new Blob([gifData], { type: 'image/gif' })
+      const blob = new Blob([gifData as BlobPart], { type: 'image/gif' })
       downloadBlob(blob, 'glitch-lab.gif')
     } finally {
       setExporting(false)

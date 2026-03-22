@@ -48,9 +48,6 @@ const OPERATORS: { value: Operator; label: string }[] = [
   { value: '!=', label: 'X ≠' },
 ]
 
-const OP_DISPLAY: Record<Operator, string> = {
-  '=': '=', '>': '>', '<': '<', '>=': '≥', '<=': '≤', '!=': '≠',
-}
 
 const INCISO_LETTERS = 'abcdefghijklmnopqrstuvwxyz'
 

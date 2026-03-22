@@ -30,14 +30,9 @@ import {
   Grid3x3 as GridIcon,
   Variable,
   Workflow,
-  Waves,
   Tv,
-  Droplets,
-  SwatchBook,
   Play,
   Video,
-  Braces,
-  Crosshair,
   MapPinned,
   Zap,
   AudioWaveform,
@@ -186,7 +181,7 @@ function saveOrder(order: string[]) {
 
 function getOrderedSections(sections: Section[], savedOrder: string[] | null): Section[] {
   if (!savedOrder) return sections
-  const map = new Map(sections.map((s) => [s.title, s]))
+  const map = new (globalThis.Map)<string, Section>(sections.map((s) => [s.title, s]))
   const ordered: Section[] = []
   for (const title of savedOrder) {
     const s = map.get(title)

@@ -37,7 +37,7 @@ export function PaletteEditorContent() {
 
   // Swapper state
   const [image, setImage] = useState<HTMLImageElement | null>(null)
-  const [extractedColors, setExtractedColors] = useState<string[]>([])
+  const [, setExtractedColors] = useState<string[]>([])
   const [mappings, setMappings] = useState<ColorMapping[]>([])
   const [tolerance, setTolerance] = useState(30)
   const [resultBlob, setResultBlob] = useState<Blob | null>(null)

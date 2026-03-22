@@ -1,5 +1,3 @@
-import type { ComponentType } from 'react'
-
 export type ToolStepType =
   | '3d-spritesheet' | 'decompile' | 'compile' | 'sprite-to-gif'
   | 'image-to-pixelart' | 'pixel-upscale' | 'image-upscale'
