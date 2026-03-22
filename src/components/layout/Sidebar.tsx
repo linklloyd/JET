@@ -39,6 +39,7 @@ import {
   ChevronRight,
   GripVertical,
   Eye,
+  Star,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { HistoryPanel } from '../ui/HistoryPanel'
@@ -154,6 +155,30 @@ const defaultSections: Section[] = [
 
 const LS_COLLAPSED_KEY = 'jet-sidebar-collapsed'
 const LS_ORDER_KEY = 'jet-sidebar-order'
+const LS_FAVORITES_KEY = 'jet-sidebar-favorites'
+
+function loadFavorites(): Set<string> {
+  try {
+    const raw = localStorage.getItem(LS_FAVORITES_KEY)
+    if (raw) return new Set(JSON.parse(raw))
+  } catch { /* ignore */ }
+  return new Set()
+}
+
+function saveFavorites(set: Set<string>) {
+  localStorage.setItem(LS_FAVORITES_KEY, JSON.stringify([...set]))
+}
+
+/** Flatten all tools across all sections into a lookup by path */
+function getAllTools(sections: Section[]): Map<string, ToolEntry> {
+  const map = new globalThis.Map<string, ToolEntry>()
+  for (const section of sections) {
+    for (const tool of section.tools) {
+      map.set(tool.path, tool)
+    }
+  }
+  return map
+}
 
 function loadCollapsed(): Set<string> {
   try {
@@ -207,11 +232,23 @@ export function Sidebar() {
   const location = useLocation()
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed)
   const [sectionOrder, setSectionOrder] = useState<string[] | null>(loadOrder)
+  const [favorites, setFavorites] = useState<Set<string>>(loadFavorites)
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null)
   const [overIdx, setOverIdx] = useState<number | null>(null)
   const dragCounterRef = useRef(0)
 
   const sections = getOrderedSections(defaultSections, sectionOrder)
+  const allToolsMap = getAllTools(sections)
+
+  const toggleFavorite = useCallback((path: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      saveFavorites(next)
+      return next
+    })
+  }, [])
 
   // Auto-expand category containing active tool
   useEffect(() => {
@@ -293,6 +330,49 @@ export function Sidebar() {
         <img src="/favicon.png" alt="JET - Just Enough Tools" className="h-10" />
       </Link>
       <nav className="flex-1 px-2 pt-4 pb-2 overflow-y-auto">
+        {/* Favorites section — pinned at top */}
+        {favorites.size > 0 && (
+          <div className="mb-2">
+            <div className="flex items-center px-2 py-1.5">
+              <Star size={11} className="text-amber-400 fill-amber-400 shrink-0 mr-1.5" />
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Favorites</span>
+            </div>
+            <div className="space-y-0.5 pb-1">
+              {[...favorites].map((favPath) => {
+                const tool = allToolsMap.get(favPath)
+                if (!tool || tool.disabled) return null
+                const Icon = tool.icon
+                return (
+                  <div key={favPath} className="group relative flex items-center">
+                    <NavLink
+                      to={tool.subtabs ? tool.subtabs[0].path : favPath}
+                      className={({ isActive }) =>
+                        cn(
+                          'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] transition-colors flex-1 min-w-0',
+                          isActive
+                            ? 'bg-blue-50 text-blue-700 font-medium'
+                            : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900',
+                        )
+                      }
+                    >
+                      <Icon size={15} />
+                      <span className="truncate">{tool.label}</span>
+                    </NavLink>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleFavorite(favPath) }}
+                      className="absolute right-1 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-zinc-200 transition-opacity"
+                      title="Remove from favorites"
+                    >
+                      <Star size={11} className="text-amber-400 fill-amber-400" />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="border-b border-zinc-100 mx-2 mb-1" />
+          </div>
+        )}
+
         {sections.map((section, sIdx) => {
           const isCollapsed = collapsed.has(section.title)
           const isDragging = draggedIdx === sIdx
@@ -357,22 +437,35 @@ export function Sidebar() {
                       }
 
                       if (subtabs) {
+                        const isFavSub = favorites.has(path)
                         return (
                           <div key={path}>
-                            <NavLink
-                              to={subtabs[0].path}
-                              className={() =>
-                                cn(
-                                  'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] transition-colors',
-                                  isParentActive
-                                    ? 'bg-blue-50 text-blue-700 font-medium'
-                                    : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900',
-                                )
-                              }
-                            >
-                              <Icon size={15} />
-                              {label}
-                            </NavLink>
+                            <div className="group/fav relative flex items-center">
+                              <NavLink
+                                to={subtabs[0].path}
+                                className={() =>
+                                  cn(
+                                    'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] transition-colors flex-1 min-w-0',
+                                    isParentActive
+                                      ? 'bg-blue-50 text-blue-700 font-medium'
+                                      : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900',
+                                  )
+                                }
+                              >
+                                <Icon size={15} />
+                                <span className="truncate">{label}</span>
+                              </NavLink>
+                              <button
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFavorite(path) }}
+                                className={cn(
+                                  'absolute right-1 p-1 rounded transition-opacity',
+                                  isFavSub ? 'opacity-100' : 'opacity-0 group-hover/fav:opacity-100 hover:bg-zinc-200',
+                                )}
+                                title={isFavSub ? 'Remove from favorites' : 'Add to favorites'}
+                              >
+                                <Star size={11} className={isFavSub ? 'text-amber-400 fill-amber-400' : 'text-zinc-400'} />
+                              </button>
+                            </div>
                             {isParentActive && (
                               <div className="ml-5 mt-0.5 space-y-0.5 border-l border-zinc-200 pl-2">
                                 {subtabs.map(({ path: subPath, label: subLabel, icon: SubIcon }) => (
@@ -398,22 +491,34 @@ export function Sidebar() {
                         )
                       }
 
+                      const isFav = favorites.has(path)
                       return (
-                        <NavLink
-                          key={path}
-                          to={path}
-                          className={({ isActive }) =>
-                            cn(
-                              'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] transition-colors',
-                              isActive
-                                ? 'bg-blue-50 text-blue-700 font-medium'
-                                : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900',
-                            )
-                          }
-                        >
-                          <Icon size={15} />
-                          {label}
-                        </NavLink>
+                        <div key={path} className="group/fav relative flex items-center">
+                          <NavLink
+                            to={path}
+                            className={({ isActive }) =>
+                              cn(
+                                'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] transition-colors flex-1 min-w-0',
+                                isActive
+                                  ? 'bg-blue-50 text-blue-700 font-medium'
+                                  : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900',
+                              )
+                            }
+                          >
+                            <Icon size={15} />
+                            <span className="truncate">{label}</span>
+                          </NavLink>
+                          <button
+                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleFavorite(path) }}
+                            className={cn(
+                              'absolute right-1 p-1 rounded transition-opacity',
+                              isFav ? 'opacity-100' : 'opacity-0 group-hover/fav:opacity-100 hover:bg-zinc-200',
+                            )}
+                            title={isFav ? 'Remove from favorites' : 'Add to favorites'}
+                          >
+                            <Star size={11} className={isFav ? 'text-amber-400 fill-amber-400' : 'text-zinc-400'} />
+                          </button>
+                        </div>
                       )
                     })}
                   </div>
