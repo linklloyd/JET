@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter, Navigate, Link, useRouteError, isRouteErrorResponse } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import { HomePage } from './tools/home/HomePage'
 import { SocialConverterPage } from './tools/social-converter/SocialConverterPage'
@@ -29,10 +29,38 @@ import { lazy, Suspense } from 'react'
 
 const EarthboundBGPage = lazy(() => import('./tools/earthbound-bg/EarthboundBGPage').then(m => ({ default: m.EarthboundBGPage })))
 
+function ErrorPage() {
+  const error = useRouteError()
+  const is404 = isRouteErrorResponse(error) && error.status === 404
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-zinc-50">
+      <div className="text-center space-y-4 px-6">
+        <p className="text-6xl font-bold text-zinc-300">{is404 ? '404' : 'Oops'}</p>
+        <h1 className="text-xl font-semibold text-zinc-800">
+          {is404 ? 'Page not found' : 'Something went wrong'}
+        </h1>
+        <p className="text-sm text-zinc-500 max-w-sm mx-auto">
+          {is404
+            ? "The page you're looking for doesn't exist or has been moved."
+            : 'An unexpected error occurred. Try heading back home.'}
+        </p>
+        <Link
+          to="/"
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors mt-2"
+        >
+          Back to Home
+        </Link>
+      </div>
+    </div>
+  )
+}
+
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <AppLayout />,
+    errorElement: <ErrorPage />,
     children: [
       { index: true, element: <HomePage /> },
       { path: 'social-converter', element: <SocialConverterPage /> },
