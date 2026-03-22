@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import type { MathfieldElement } from 'mathlive'
+import { MathfieldElement, convertLatexToMarkup } from 'mathlive'
 
-// Import MathLive (registers <math-field> custom element + static rendering)
-import 'mathlive'
-import { convertLatexToMarkup } from 'mathlive'
+// Configure MathLive to find fonts in the public directory
+MathfieldElement.fontsDirectory = '/fonts/'
 
 // ---------------------------------------------------------------------------
 // Symbol keyboard definitions (Symbolab-style categories)
@@ -30,13 +29,13 @@ const KEYBOARD_CATEGORIES: KBCategory[] = [
       { display: 'x□', latex: 'x^{#0}' },
       { display: '√□', latex: '\\sqrt{#0}' },
       { display: 'ⁿ√□', latex: '\\sqrt[#0]{#0}' },
-      { display: 'logₙ', latex: '\\log_{#0}' },
-      { display: 'π', latex: '\\pi' },
-      { display: 'θ', latex: '\\theta' },
-      { display: '∞', latex: '\\infty' },
-      { display: '∫', latex: '\\int' },
-      { display: 'd/dx', latex: '\\frac{d}{dx}' },
       { display: 'eˣ', latex: 'e^{#0}' },
+      { display: 'ln', latex: '\\ln(#0)' },
+      { display: 'log', latex: '\\log(#0)' },
+      { display: 'logₙ', latex: '\\log_{#0}' },
+      { display: '|□|', latex: '\\lvert #0 \\rvert' },
+      { display: '(□)', latex: '(#0)' },
+      { display: '±', latex: '\\pm' },
     ],
   },
   {
@@ -54,42 +53,18 @@ const KEYBOARD_CATEGORIES: KBCategory[] = [
     ],
   },
   {
-    label: 'αβγ',
+    label: 'Constants',
     symbols: [
+      { display: 'π', latex: '\\pi' },
+      { display: 'e', latex: 'e' },
+      { display: '∞', latex: '\\infty' },
+      { display: 'θ', latex: '\\theta' },
       { display: 'α', latex: '\\alpha' },
       { display: 'β', latex: '\\beta' },
       { display: 'γ', latex: '\\gamma' },
       { display: 'δ', latex: '\\delta' },
-      { display: 'ε', latex: '\\epsilon' },
       { display: 'λ', latex: '\\lambda' },
-      { display: 'μ', latex: '\\mu' },
-      { display: 'σ', latex: '\\sigma' },
-      { display: 'ω', latex: '\\omega' },
       { display: 'φ', latex: '\\phi' },
-    ],
-  },
-  {
-    label: '≥ ÷ →',
-    symbols: [
-      { display: '≥', latex: '\\geq' },
-      { display: '≤', latex: '\\leq' },
-      { display: '≠', latex: '\\neq' },
-      { display: '±', latex: '\\pm' },
-      { display: '·', latex: '\\cdot' },
-      { display: '÷', latex: '\\div' },
-      { display: '|□|', latex: '\\lvert #0 \\rvert' },
-      { display: '(□)', latex: '(#0)' },
-    ],
-  },
-  {
-    label: '∑ ∫ ∏',
-    symbols: [
-      { display: '∫ₐᵇ', latex: '\\int_{#0}^{#0}' },
-      { display: '∑', latex: '\\sum_{#0}^{#0}' },
-      { display: '∏', latex: '\\prod_{#0}^{#0}' },
-      { display: 'lim', latex: '\\lim_{#0}' },
-      { display: 'ln', latex: '\\ln(#0)' },
-      { display: 'log', latex: '\\log(#0)' },
     ],
   },
 ]
@@ -223,9 +198,18 @@ export function MathDisplay({ latex, className }: { latex: string; className?: s
 
   useEffect(() => {
     if (!containerRef.current || !latex) return
-    try {
-      containerRef.current.innerHTML = convertLatexToMarkup(latex)
-    } catch {
+
+    // Check if this looks like math or plain text
+    const hasMathChars = /[\\^_{}]|[0-9]+[a-z]|[+\-*/=<>]|\bsin\b|\bcos\b|\btan\b|\bln\b|\blog\b|\bsqrt\b|∫|√|π|∞|\bfrac\b/.test(latex)
+
+    if (hasMathChars) {
+      try {
+        containerRef.current.innerHTML = convertLatexToMarkup(latex)
+      } catch {
+        containerRef.current.textContent = latex
+      }
+    } else {
+      // Plain text — render as-is with text styling
       containerRef.current.textContent = latex
     }
   }, [latex])

@@ -221,9 +221,7 @@ function techniqueDescription(t: IntegrationTechnique): string {
 // ---------------------------------------------------------------------------
 
 function solvePowerRule(expr: string, variable: string, steps: IntegralStep[]): string {
-  // Parse polynomial into terms, integrate each
   try {
-    // Use Algebrite to expand first
     const expanded = cas.run(`expand(${expr})`)
 
     steps.push({
@@ -232,31 +230,50 @@ function solvePowerRule(expr: string, variable: string, steps: IntegralStep[]): 
       description: 'Se expande la expresión para identificar cada término',
     })
 
-    // Split into terms (by + and -)
     const terms = splitIntoTerms(expanded)
 
     if (terms.length > 1) {
       steps.push({
         label: 'Regla de la suma',
         expression: terms.map((t) => `∫(${formatExpression(t)}) d${variable}`).join(' + '),
-        description: 'Se integra cada término por separado',
+        description: 'Se integra cada término por separado: ∫(f + g) = ∫f + ∫g',
       })
     }
 
-    // Integrate each term and show the step
+    // Show the general formula
+    steps.push({
+      label: 'Fórmula',
+      expression: `∫a${variable}^n d${variable} = a · ${variable}^(n+1) / (n+1)`,
+      description: 'Se aplica la regla de la potencia a cada término',
+    })
+
+    // Integrate each term with formula substitution
     const integratedTerms: string[] = []
     for (const term of terms) {
       const termIntegral = cas.integral(term, variable)
       integratedTerms.push(termIntegral)
 
-      steps.push({
-        label: `Integrar término`,
-        expression: `∫(${formatExpression(term)}) d${variable} = ${formatExpression(termIntegral)}`,
-        description: `Aplicar regla de la potencia: ∫${variable}ⁿ d${variable} = ${variable}ⁿ⁺¹/(n+1)`,
-      })
+      // Extract coefficient and exponent for substitution display
+      const { coeff, exp: n } = extractCoeffAndExponent(term, variable)
+      const nPlus1 = n + 1
+
+      if (n === 0) {
+        steps.push({
+          label: `Integrar: ${formatExpression(term)}`,
+          expression: `∫(${coeff}) d${variable} = (${coeff})·${variable}`,
+          description: `Constante: ∫a d${variable} = a·${variable}`,
+          value: formatExpression(termIntegral),
+        })
+      } else {
+        steps.push({
+          label: `Integrar: ${formatExpression(term)}`,
+          expression: `a=${coeff}, n=${n} → (${coeff})·${variable}^(${n}+1)/(${n}+1) = (${coeff})·${variable}^${nPlus1}/${nPlus1} = ${formatExpression(termIntegral)}`,
+          description: `Sustituir a=${coeff}, n=${n} en la fórmula ∫a·${variable}^n d${variable} = a·${variable}^(n+1)/(n+1)`,
+          value: formatExpression(termIntegral),
+        })
+      }
     }
 
-    // Combine
     const combined = integratedTerms.join(' + ')
     const simplified = cas.simplify(combined)
 
@@ -268,8 +285,48 @@ function solvePowerRule(expr: string, variable: string, steps: IntegralStep[]): 
 
     return simplified
   } catch {
-    // Fallback to direct integration
     return solveDirect(expr, variable, steps)
+  }
+}
+
+/** Evaluate a CAS expression to a number (handles fractions like "1/2") */
+function evalToNumber(expr: string): number {
+  const n = parseFloat(expr)
+  if (!isNaN(n)) return n
+  // Try evaluating as float via CAS
+  try {
+    const f = cas.run(`float(${expr})`)
+    return parseFloat(f) || 0
+  } catch {
+    return 0
+  }
+}
+
+/** Extract coefficient and exponent from a term like 3*x^2, x, 5, etc. */
+function extractCoeffAndExponent(term: string, variable: string): { coeff: string; exp: number } {
+  const t = term.trim()
+
+  // Pure constant (no variable)
+  if (!t.includes(variable)) {
+    return { coeff: t, exp: 0 }
+  }
+
+  try {
+    const degree = cas.run(`deg(${t}, ${variable})`)
+    const n = evalToNumber(degree)
+
+    // Get coefficient as a string (preserves fractions like "1/2")
+    const coeffStr = cas.run(`coeff(${t}, ${variable}, ${Math.round(n)})`)
+
+    return { coeff: coeffStr || '1', exp: n }
+  } catch {
+    const match = t.match(/^([+-]?\d*\.?\d*)\*?([a-z])(?:\^(\d+))?$/)
+    if (match) {
+      const c = match[1] === '' || match[1] === '+' ? '1' : match[1] === '-' ? '-1' : match[1]
+      const n = match[3] ? parseInt(match[3]) : 1
+      return { coeff: c, exp: n }
+    }
+    return { coeff: '1', exp: 1 }
   }
 }
 

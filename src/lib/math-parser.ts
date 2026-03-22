@@ -119,6 +119,8 @@ export function formatExpression(expr: string): string {
   s = s.replace(/\bpi\b/g, 'π')
   s = s.replace(/\binf\b/g, '∞')
   s = s.replace(/\bsqrt\(/g, '√(')
+  // Algebrite uses "log" for natural log — display as "ln"
+  s = s.replace(/\blog\(/g, 'ln(')
 
   // Clean up multiplication signs for display
   // Remove * between coefficient and variable: 3*x → 3x
@@ -134,99 +136,171 @@ export function formatExpression(expr: string): string {
 // LaTeX → Algebrite converter (for MathLive output)
 // ---------------------------------------------------------------------------
 
-/** Convert MathLive LaTeX output to Algebrite-compatible syntax */
+/** Extract the brace-balanced argument starting at position `start` (which should be '{') */
+function extractBraceArg(s: string, start: number): { content: string; end: number } | null {
+  if (s[start] !== '{') return null
+  let depth = 0
+  for (let i = start; i < s.length; i++) {
+    if (s[i] === '{') depth++
+    else if (s[i] === '}') {
+      depth--
+      if (depth === 0) return { content: s.slice(start + 1, i), end: i + 1 }
+    }
+  }
+  return null
+}
+
+/** Convert MathLive LaTeX output to Algebrite-compatible syntax.
+ *  Uses a proper brace-matching parser to handle nested structures like \frac{e^{2x}+1}{e^{2x}-1}
+ */
 export function latexToAlgebrite(latex: string): string {
+  // Pre-clean: remove display-only commands and delimiters
   let s = latex
-
-  // Remove LaTeX whitespace commands
-  s = s.replace(/\\,/g, '')
-  s = s.replace(/\\;/g, '')
-  s = s.replace(/\\!/g, '')
-  s = s.replace(/\\quad/g, '')
-  s = s.replace(/\\qquad/g, '')
+  s = s.replace(/^\$+|\$+$/g, '')               // strip $, $$, $$$ delimiters
+  s = s.replace(/\\,|\\;|\\!|\\quad|\\qquad/g, '')
   s = s.replace(/\\ /g, ' ')
-
-  // Strip \left and \right
-  s = s.replace(/\\left/g, '')
-  s = s.replace(/\\right/g, '')
-
-  // Integrals: \int → strip (solver handles integrals separately)
-  s = s.replace(/\\int_?\{?[^}]*\}?\^?\{?[^}]*\}?\s*/g, '')
+  s = s.replace(/\\left|\\right/g, '')
+  s = s.replace(/\\operatorname\{([^}]*)\}/g, '$1')
+  s = s.replace(/\\dfrac/g, '\\frac')            // \dfrac → \frac
+  s = s.replace(/\\tfrac/g, '\\frac')            // \tfrac → \frac
   s = s.replace(/\\int\s*/g, '')
-
-  // dx, dt etc at the end
-  s = s.replace(/\\,?d([a-z])$/g, '')
+  s = s.replace(/\\,?d([a-z])\s*$/g, '')
   s = s.replace(/\s*d([a-z])\s*$/g, '')
 
-  // Fractions: \frac{a}{b} → (a)/(b)
-  // Handle nested fractions by doing multiple passes
-  for (let i = 0; i < 5; i++) {
-    s = s.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '($1)/($2)')
+  // Scan and convert
+  let result = ''
+  let i = 0
+  while (i < s.length) {
+    // --- \frac{num}{den} or \frac ab ---
+    if (s.startsWith('\\frac', i)) {
+      i += 5
+      while (i < s.length && s[i] === ' ') i++
+      let num: string, den: string
+      if (s[i] === '{') {
+        const a1 = extractBraceArg(s, i)
+        if (a1) { num = a1.content; i = a1.end } else { num = '1'; }
+        while (i < s.length && s[i] === ' ') i++
+        if (s[i] === '{') {
+          const a2 = extractBraceArg(s, i)
+          if (a2) { den = a2.content; i = a2.end } else { den = s[i] || '1'; i++ }
+        } else { den = s[i] || '1'; i++ }
+      } else {
+        num = s[i] || '1'; i++
+        den = s[i] || '1'; i++
+      }
+      result += `(${latexToAlgebrite(num)})/(${latexToAlgebrite(den)})`
+      continue
+    }
+
+    // --- \sqrt[n]{x} or \sqrt{x} ---
+    if (s.startsWith('\\sqrt', i)) {
+      i += 5
+      if (s[i] === '[') {
+        const cb = s.indexOf(']', i)
+        if (cb !== -1) {
+          const n = s.slice(i + 1, cb)
+          i = cb + 1
+          if (s[i] === '{') {
+            const a = extractBraceArg(s, i)
+            if (a) { result += `(${latexToAlgebrite(a.content)})^(1/(${latexToAlgebrite(n)}))`; i = a.end; continue }
+          }
+        }
+      } else if (s[i] === '{') {
+        const a = extractBraceArg(s, i)
+        if (a) { result += `sqrt(${latexToAlgebrite(a.content)})`; i = a.end; continue }
+      }
+      continue
+    }
+
+    // --- Named LaTeX commands: \sin, \cos, \ln, \pi, etc ---
+    if (s[i] === '\\') {
+      const cmdMatch = s.slice(i).match(/^\\([a-zA-Z]+)/)
+      if (cmdMatch) {
+        const cmd = cmdMatch[1]
+        const cmdLen = cmdMatch[0].length
+        const funcMap: Record<string, string> = {
+          sin: 'sin', cos: 'cos', tan: 'tan', cot: 'cot', sec: 'sec', csc: 'csc',
+          arcsin: 'arcsin', arccos: 'arccos', arctan: 'arctan',
+          sinh: 'sinh', cosh: 'cosh', tanh: 'tanh',
+          ln: 'ln', log: 'log', exp: 'exp',
+        }
+        const constMap: Record<string, string> = {
+          pi: 'pi', infty: 'inf', theta: 'theta', alpha: 'alpha', beta: 'beta',
+          gamma: 'gamma', delta: 'delta', lambda: 'lambda', phi: 'phi',
+          cdot: '*', times: '*', pm: '+-',
+          lvert: 'abs(', rvert: ')',
+        }
+        if (funcMap[cmd]) { result += funcMap[cmd]; i += cmdLen; continue }
+        if (constMap[cmd]) { result += constMap[cmd]; i += cmdLen; continue }
+        // Unknown command — skip the backslash, keep the name
+        result += cmd; i += cmdLen; continue
+      }
+      // Lone backslash — skip
+      i++
+      continue
+    }
+
+    // --- ^{exp} ---
+    if (s[i] === '^' && i + 1 < s.length && s[i + 1] === '{') {
+      const a = extractBraceArg(s, i + 1)
+      if (a) { result += `^(${latexToAlgebrite(a.content)})`; i = a.end; continue }
+    }
+
+    // --- _{sub} ---
+    if (s[i] === '_' && i + 1 < s.length && s[i + 1] === '{') {
+      const a = extractBraceArg(s, i + 1)
+      if (a) { result += a.content; i = a.end; continue }
+    }
+
+    // --- {content} plain braces → (content) ---
+    if (s[i] === '{') {
+      const a = extractBraceArg(s, i)
+      if (a) { result += `(${latexToAlgebrite(a.content)})`; i = a.end; continue }
+    }
+
+    // --- |x| absolute value ---
+    if (s[i] === '|') {
+      const close = s.indexOf('|', i + 1)
+      if (close !== -1) {
+        result += `abs(${latexToAlgebrite(s.slice(i + 1, close))})`
+        i = close + 1
+        continue
+      }
+    }
+
+    // Regular character
+    result += s[i]
+    i++
   }
 
-  // Square root: \sqrt{x} → sqrt(x), \sqrt[n]{x} → x^(1/n)
-  s = s.replace(/\\sqrt\[([^\]]+)\]\{([^{}]*)\}/g, '($2)^(1/($1))')
-  s = s.replace(/\\sqrt\{([^{}]*)\}/g, 'sqrt($1)')
+  s = result
 
-  // Powers: x^{2} → x^(2), handle multi-char exponents
-  s = s.replace(/\^{([^{}]*)}/g, '^($1)')
-  // Single char exponent without braces is fine: x^2
-
-  // Subscripts: remove or convert (x_{1} → x1)
-  s = s.replace(/_{([^{}]*)}/g, '$1')
-
-  // Trig functions
-  s = s.replace(/\\sin/g, 'sin')
-  s = s.replace(/\\cos/g, 'cos')
-  s = s.replace(/\\tan/g, 'tan')
-  s = s.replace(/\\cot/g, 'cot')
-  s = s.replace(/\\sec/g, 'sec')
-  s = s.replace(/\\csc/g, 'csc')
-  s = s.replace(/\\arcsin/g, 'arcsin')
-  s = s.replace(/\\arccos/g, 'arccos')
-  s = s.replace(/\\arctan/g, 'arctan')
-  s = s.replace(/\\sinh/g, 'sinh')
-  s = s.replace(/\\cosh/g, 'cosh')
-  s = s.replace(/\\tanh/g, 'tanh')
-
-  // Logarithms
-  s = s.replace(/\\ln/g, 'ln')
-  s = s.replace(/\\log/g, 'log')
-
-  // Constants
-  s = s.replace(/\\pi/g, 'pi')
-  s = s.replace(/\\infty/g, 'inf')
-  s = s.replace(/\\theta/g, 'theta')
-  s = s.replace(/\\alpha/g, 'alpha')
-  s = s.replace(/\\beta/g, 'beta')
-
-  // Exponential: e^{x} → exp(x) — only when it's Euler's e
-  s = s.replace(/\\exp/g, 'exp')
-
-  // Multiplication: \cdot and \times → *
-  s = s.replace(/\\cdot/g, '*')
-  s = s.replace(/\\times/g, '*')
-
-  // Absolute value: |x| or \lvert x \rvert
-  s = s.replace(/\\lvert/g, 'abs(')
-  s = s.replace(/\\rvert/g, ')')
-  s = s.replace(/\|([^|]+)\|/g, 'abs($1)')
-
-  // Remove remaining backslash commands that are just display
-  s = s.replace(/\\operatorname\{([^}]*)\}/g, '$1')
-
-  // Clean up braces that are just grouping
-  s = s.replace(/\{([^{}]*)\}/g, '($1)')
-
-  // Implicit multiplication: 2x → 2*x, )(  → )*(
+  // Implicit multiplication
   s = s.replace(/(\d)([a-zA-Z])/g, '$1*$2')
   s = s.replace(/\)\(/g, ')*(')
   s = s.replace(/\)([a-zA-Z])/g, ')*$1')
 
-  // Clean up multiple spaces
   s = s.replace(/\s+/g, ' ').trim()
-
   return s
+}
+
+/** Detect the integration variable from a LaTeX expression */
+export function detectVariable(latex: string): string {
+  // Check for dx, dt, dy, etc. at the end
+  const dMatch = latex.match(/d([a-z])\s*$/)
+  if (dMatch) return dMatch[1]
+
+  // Find single-letter variables (excluding common function names and constants)
+  const reserved = new Set(['e', 'd', 'i', 'n', 'k'])
+  const funcNames = /sin|cos|tan|cot|sec|csc|log|ln|exp|abs|sqrt|lim|sum|int|frac|pi|inf|theta|alpha|beta|gamma|delta|epsilon|lambda|mu|sigma|omega|phi|arcsin|arccos|arctan/g
+  const cleaned = latex.replace(/\\[a-zA-Z]+/g, '').replace(funcNames, '')
+  const vars = cleaned.match(/\b([a-z])\b/g)
+  if (vars) {
+    for (const v of vars) {
+      if (!reserved.has(v)) return v
+    }
+  }
+  return 'x'
 }
 
 // ---------------------------------------------------------------------------
@@ -237,11 +311,24 @@ export function latexToAlgebrite(latex: string): string {
 export function algebriteToLatex(expr: string): string {
   let s = expr
 
+  // If it's already clean LaTeX (starts with \), just return
+  if (/^\\[a-zA-Z]/.test(s.trim()) && !s.includes('∫') && !s.includes('→')) return s
+
+  // --- Handle display-string symbols (from solver step formatting) ---
+  s = s.replace(/→/g, '\\Rightarrow ')
+  s = s.replace(/·/g, '\\cdot ')
+  s = s.replace(/±/g, '\\pm ')
+
+  // "dx", "dt" etc — only match specific differential patterns in integral context
+  // Must be preceded by ) or a digit/variable, and only match single-letter vars (x, t, y, u, etc.)
+  s = s.replace(/([)}\d])d([xyztuvw])(?:\s|$|[+\-=)])/g, (m, pre, v) => `${pre}\\,d${v}${m.slice(-1).match(/[+\-=)]/) ? m.slice(-1) : ' '}`)
+  // Also match " dx" at end of integral expressions (space before d)
+  s = s.replace(/\s+d([xyztuvw])(?:\s|$)/g, '\\,d$1 ')
+
   // Unicode symbols back to LaTeX
   s = s.replace(/π/g, '\\pi ')
   s = s.replace(/∞/g, '\\infty ')
   s = s.replace(/√\(/g, '\\sqrt{')
-  // Fix sqrt closing: find matching paren after sqrt
   s = s.replace(/∫/g, '\\int ')
   s = s.replace(/−/g, '-')
 
@@ -249,11 +336,22 @@ export function algebriteToLatex(expr: string): string {
   const supMap: Record<string, string> = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' }
   s = s.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]+/g, (match) => '^{' + [...match].map((c) => supMap[c] || c).join('') + '}')
 
-  // Fractions: (a)/(b) patterns
-  s = s.replace(/\(([^()]+)\)\/\(([^()]+)\)/g, '\\frac{$1}{$2}')
+  // --- Exponents FIRST (before fractions so ^(n+1) is consumed before /(n+1)) ---
+  s = s.replace(/\*\*/g, '^') // ** is exponentiation in some CAS outputs
+  s = s.replace(/\^\(([^()]*)\)/g, '^{$1}')  // x^(n+1) → x^{n+1}
+  s = s.replace(/\^(\d+)/g, '^{$1}')          // x^2 → x^{2}
 
-  // Simple numeric fractions: 1/3, 3/2, etc (not inside larger expressions)
-  s = s.replace(/(\d+)\/(\d+)/g, '\\frac{$1}{$2}')
+  // --- Fractions (after exponents are consumed) ---
+  // Nested parens: (a)/(b) patterns
+  s = s.replace(/\(([^()]+)\)\/\(([^()]+)\)/g, '\\frac{$1}{$2}')
+  // Number or expression / (expr): -2/(x+1), 1/(x+1)
+  s = s.replace(/(-?\d+)\/\(([^()]+)\)/g, '\\frac{$1}{$2}')
+  // (expr)/number: (x+1)/3
+  s = s.replace(/\(([^()]+)\)\/(\d+)/g, '\\frac{$1}{$2}')
+  // After ^ exponent: x^{n+1}/(n+1) — standalone /(expr) as division
+  s = s.replace(/\s*\/\s*\(([^()]+)\)/g, '\\cdot \\frac{1}{$1}')
+  // Simple numeric fractions: 1/3, 3/2, etc.
+  s = s.replace(/(?<![a-zA-Z^{])(\d+)\/(\d+)(?![a-zA-Z}])/g, '\\frac{$1}{$2}')
 
   // sqrt(x) → \sqrt{x}
   s = s.replace(/sqrt\(([^()]*)\)/g, '\\sqrt{$1}')
@@ -266,7 +364,8 @@ export function algebriteToLatex(expr: string): string {
   s = s.replace(/\bsec\b/g, '\\sec')
   s = s.replace(/\bcsc\b/g, '\\csc')
   s = s.replace(/\bln\b/g, '\\ln')
-  s = s.replace(/\blog\b/g, '\\log')
+  // Algebrite uses "log" for natural log — display as ln
+  s = s.replace(/\blog\b/g, '\\ln')
   s = s.replace(/\barcsin\b/g, '\\arcsin')
   s = s.replace(/\barccos\b/g, '\\arccos')
   s = s.replace(/\barctan\b/g, '\\arctan')
@@ -275,14 +374,17 @@ export function algebriteToLatex(expr: string): string {
   s = s.replace(/\bpi\b/g, '\\pi')
   s = s.replace(/\binf\b/g, '\\infty')
 
-  // Exponents: x^2 → x^{2}, x^(n+1) → x^{n+1}
-  s = s.replace(/\^(\d+)/g, '^{$1}')
-  s = s.replace(/\^\(([^()]*)\)/g, '^{$1}')
+  // Clean up multiplication: replace * with \cdot or remove for implicit multiplication
+  s = s.replace(/([a-zA-Z0-9})])\*([a-zA-Z(\\])/g, '$1 \\cdot $2')
+  // But for clean display, use implicit multiplication where natural
+  s = s.replace(/(\d) \\cdot ([a-zA-Z])/g, '$1$2') // 3·x → 3x
+  s = s.replace(/\) \\cdot \(/g, ')(') // )·( → )(
+  s = s.replace(/\) \\cdot ([a-zA-Z])/g, ')$1') // )·x → )x
+  s = s.replace(/([a-zA-Z}]) \\cdot \(/g, '$1(') // x·( → x(
 
-  // Clean up multiplication: remove * between terms for display
-  s = s.replace(/(\d)\*([a-zA-Z\\])/g, '$1$2')
-  s = s.replace(/\)\*\(/g, ')(')
-  s = s.replace(/\)\*([a-zA-Z\\])/g, ')$1')
+  // Handle comma-separated assignments like "a=1, n=2"
+  // Don't match \, (LaTeX thin space command)
+  s = s.replace(/(?<!\\),\s*/g, ',\\; ')
 
   return s
 }

@@ -2,10 +2,9 @@ import { useState } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
 import { MathInput, MathDisplay, CollapsibleSection } from '../../components/ui/MathInput'
-import { Select } from '../../components/ui/Select'
 import { Calculator, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { solveIntegral } from './solver'
-import { latexToAlgebrite, algebriteToLatex } from '../../lib/math-parser'
+import { latexToAlgebrite, algebriteToLatex, detectVariable } from '../../lib/math-parser'
 import type { IntegralMethod, IntegralResult } from './types'
 
 const VALID_METHODS = ['indefinite', 'definite', 'by-parts', 'substitution', 'partial-fractions'] as const
@@ -45,9 +44,6 @@ export function IntegralsPage() {
 
 function IntegralsView({ method }: { method: IntegralMethod }) {
   const [expression, setExpression] = useState('')
-  const [variable, setVariable] = useState('x')
-  const [lowerBound, setLowerBound] = useState('')
-  const [upperBound, setUpperBound] = useState('')
   const [result, setResult] = useState<IntegralResult | null>(null)
 
   const info = METHOD_INFO[method]
@@ -56,18 +52,14 @@ function IntegralsView({ method }: { method: IntegralMethod }) {
     if (!expression.trim()) return
 
     try {
-      // Convert MathLive LaTeX to Algebrite-compatible syntax
       const algebriteExpr = latexToAlgebrite(expression)
-      const bounds = method === 'definite' && lowerBound && upperBound
-        ? { lower: latexToAlgebrite(lowerBound), upper: latexToAlgebrite(upperBound) }
-        : undefined
-
-      const res = solveIntegral(algebriteExpr, variable, method, bounds)
+      const variable = detectVariable(expression)
+      const res = solveIntegral(algebriteExpr, variable, method)
       setResult(res)
     } catch (err) {
       setResult({
         input: expression,
-        variable,
+        variable: detectVariable(expression),
         technique: 'direct',
         antiderivative: '',
         steps: [],
@@ -77,8 +69,7 @@ function IntegralsView({ method }: { method: IntegralMethod }) {
     }
   }
 
-  const canCalculate = expression.trim().length > 0 &&
-    (method !== 'definite' || (lowerBound.trim() && upperBound.trim()))
+  const canCalculate = expression.trim().length > 0
 
   return (
     <div className="space-y-6">
@@ -92,53 +83,10 @@ function IntegralsView({ method }: { method: IntegralMethod }) {
         <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Parámetros</p>
 
         <MathInput
-          label="Integrando f(x)"
           value={expression}
           onChange={setExpression}
-          placeholder="ej: x^2 + 3*x + 1"
+          placeholder="ej: x^2 + 3x + 1"
         />
-
-        <div className="flex gap-4 items-end">
-          <div className="w-28">
-            <Select
-              label="Variable"
-              options={[
-                { value: 'x', label: 'x' },
-                { value: 't', label: 't' },
-                { value: 'u', label: 'u' },
-                { value: 'y', label: 'y' },
-                { value: 'z', label: 'z' },
-              ]}
-              value={variable}
-              onChange={(e) => setVariable(e.target.value)}
-            />
-          </div>
-
-          {method === 'definite' && (
-            <>
-              <div className="flex-1">
-                <label className="text-xs font-medium text-zinc-600 block mb-1">Límite inferior</label>
-                <input
-                  type="text"
-                  value={lowerBound}
-                  onChange={(e) => setLowerBound(e.target.value)}
-                  placeholder="0"
-                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="text-xs font-medium text-zinc-600 block mb-1">Límite superior</label>
-                <input
-                  type="text"
-                  value={upperBound}
-                  onChange={(e) => setUpperBound(e.target.value)}
-                  placeholder="1"
-                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-                />
-              </div>
-            </>
-          )}
-        </div>
 
         <Button onClick={handleCalculate} disabled={!canCalculate} className="w-full">
           <Calculator size={16} /> Calcular Integral
