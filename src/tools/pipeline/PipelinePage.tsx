@@ -3,7 +3,7 @@ import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
 import {
   Play, Plus, X, Download, Loader2, ChevronRight, Save,
-  Trash2, ArrowDown, CheckCircle2, AlertCircle, Grid3X3, Film,
+  Trash2, CheckCircle2, AlertCircle, Grid3X3, Film,
   PaintBucket, FileType, ZoomIn, Maximize2, Box, Droplets, SwatchBook,
   ArrowRight,
 } from 'lucide-react'
@@ -111,16 +111,21 @@ export function PipelinePage() {
     savePipelines(updated)
   }
 
-  const addStep = (type: ToolStepType) => {
-    setSteps((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        type,
-        config: getDefaultConfig(type),
-        status: 'idle',
-      },
-    ])
+  const addStep = (type: ToolStepType, atIndex?: number) => {
+    const newStep: PipelineStep = {
+      id: crypto.randomUUID(),
+      type,
+      config: getDefaultConfig(type),
+      status: 'idle',
+    }
+    setSteps((prev) => {
+      if (atIndex !== undefined) {
+        const next = [...prev]
+        next.splice(atIndex, 0, newStep)
+        return next
+      }
+      return [...prev, newStep]
+    })
   }
 
   const removeStep = (id: string) => {
@@ -133,13 +138,19 @@ export function PipelinePage() {
     )
   }
 
+  const getOutputTypeAt = (index: number) => {
+    if (index < 0) return 'blob' as const
+    return TOOL_DEFS[steps[index].type].outputType
+  }
+
   const getLastOutputType = () => {
     if (steps.length === 0) return 'blob' as const
     return TOOL_DEFS[steps[steps.length - 1].type].outputType
   }
 
   const handleRun = useCallback(async () => {
-    if (!inputFile || steps.length === 0) return
+    const is3DFirst = steps[0]?.type === '3d-spritesheet'
+    if ((!inputFile && !is3DFirst) || steps.length === 0) return
     setRunning(true)
     setFinalResult(null)
     if (finalPreviewUrl) URL.revokeObjectURL(finalPreviewUrl)
@@ -153,7 +164,6 @@ export function PipelinePage() {
     previewUrlsRef.current = []
 
     // For 3D spritesheet as first step, we don't need a file input — the model file is in the step config
-    const is3DFirst = steps[0]?.type === '3d-spritesheet'
     const inputBlob = is3DFirst
       ? new Blob([]) // dummy blob, the 3D function reads config.modelFile
       : new Blob([await inputFile!.arrayBuffer()], { type: inputFile!.type })
@@ -297,13 +307,36 @@ export function PipelinePage() {
 
       {view === 'builder' && (
         <div className="space-y-4">
-          {/* Input file */}
-          <FileDropzone
-            onFiles={handleInputFiles}
-            accept="image/*"
-            label="Drop your input file here"
-            description="The starting image for the pipeline"
-          />
+          {/* Input file — optional when 3D spritesheet is first step */}
+          {steps[0]?.type !== '3d-spritesheet' ? (
+            <FileDropzone
+              onFiles={handleInputFiles}
+              accept="image/*"
+              label="Drop your input file here"
+              description="The starting image for the pipeline"
+            />
+          ) : !inputFile ? (
+            <div className="border-2 border-dashed border-zinc-200 rounded-xl p-4 text-center">
+              <p className="text-sm text-zinc-500">
+                Input image is <span className="font-medium text-zinc-600">optional</span> for 3D Spritesheet — it will be used as a texture if provided.
+              </p>
+              <button
+                onClick={() => {
+                  const input = document.createElement('input')
+                  input.type = 'file'
+                  input.accept = 'image/*'
+                  input.onchange = (e) => {
+                    const files = Array.from((e.target as HTMLInputElement).files || [])
+                    if (files.length) handleInputFiles(files)
+                  }
+                  input.click()
+                }}
+                className="mt-2 text-xs text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Upload texture image (optional)
+              </button>
+            </div>
+          ) : null}
 
           {inputFile && (
             <div className="bg-white border border-zinc-200 rounded-lg px-4 py-2 flex items-center justify-between">
@@ -316,17 +349,18 @@ export function PipelinePage() {
 
           {/* Steps */}
           {steps.length > 0 && (
-            <div className="space-y-2">
+            <div className="space-y-0">
               {steps.map((step, index) => {
                 const def = TOOL_DEFS[step.type]
                 const Icon = STEP_ICONS[step.type] || FileType
                 return (
                   <div key={step.id}>
-                    {index > 0 && (
-                      <div className="flex justify-center py-1">
-                        <ArrowDown size={14} className="text-zinc-300" />
-                      </div>
-                    )}
+                    {/* Insert-before button */}
+                    <InsertStepButton
+                      outputType={index === 0 ? 'blob' : getOutputTypeAt(index - 1)}
+                      onAdd={(type) => addStep(type, index)}
+                      disabled={running}
+                    />
                     <div className={`bg-white border rounded-lg p-4 transition-colors ${
                       step.status === 'running' ? 'border-blue-400 shadow-sm' :
                       step.status === 'done' ? 'border-green-300' :
@@ -447,7 +481,6 @@ export function PipelinePage() {
             outputType={getLastOutputType()}
             onAdd={addStep}
             disabled={running}
-            isFirst={steps.length === 0}
           />
 
           {/* Actions */}
@@ -518,11 +551,69 @@ export function PipelinePage() {
   )
 }
 
-function AddStepButton({ outputType, onAdd, disabled, isFirst }: { outputType: string; onAdd: (type: ToolStepType) => void; disabled: boolean; isFirst?: boolean }) {
+function InsertStepButton({ outputType, onAdd, disabled }: { outputType: string; onAdd: (type: ToolStepType) => void; disabled: boolean }) {
+  const [open, setOpen] = useState(false)
+
+  const compatible = getCompatibleSteps(outputType as any)
+  const batchCompatible = outputType === 'blob[]'
+    ? getCompatibleSteps('blob').filter((t) => !compatible.includes(t))
+    : []
+  const allOptions = [...compatible, ...batchCompatible]
+
+  if (!open) {
+    return (
+      <div className="flex items-center justify-center py-1 group">
+        <div className="flex-1 border-t border-dashed border-zinc-200 group-hover:border-zinc-300 transition-colors" />
+        <button
+          onClick={() => setOpen(true)}
+          disabled={disabled}
+          className="mx-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
+          title="Insert step here"
+        >
+          <Plus size={10} /> Insert
+        </button>
+        <div className="flex-1 border-t border-dashed border-zinc-200 group-hover:border-zinc-300 transition-colors" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="my-1 bg-blue-50 border border-blue-200 rounded-lg p-2.5 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-medium text-blue-600">Insert a step here:</p>
+        <button onClick={() => setOpen(false)} className="text-blue-400 hover:text-blue-600">
+          <X size={12} />
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-1">
+        {allOptions.map((type) => {
+          const def = TOOL_DEFS[type]
+          const Icon = STEP_ICONS[type] || FileType
+          const isBatch = batchCompatible.includes(type)
+          return (
+            <button
+              key={type}
+              onClick={() => { onAdd(type); setOpen(false) }}
+              className="flex items-center gap-1.5 px-2 py-1.5 rounded text-left hover:bg-white hover:shadow-sm transition-all text-xs text-zinc-600"
+            >
+              <Icon size={11} />
+              <span>
+                {def.label}
+                {isBatch && <span className="text-[9px] text-zinc-400 ml-0.5">(batch)</span>}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function AddStepButton({ outputType, onAdd, disabled }: { outputType: string; onAdd: (type: ToolStepType) => void; disabled: boolean }) {
   const [open, setOpen] = useState(false)
 
   // Get steps compatible with both the output type AND blob (since batch mode handles blob[] → blob mapping)
-  const compatible = getCompatibleSteps(outputType as any, isFirst)
+  const compatible = getCompatibleSteps(outputType as any)
   // Also include blob-type steps when output is blob[] (they'll run in batch mode)
   const batchCompatible = outputType === 'blob[]'
     ? getCompatibleSteps('blob').filter((t) => !compatible.includes(t))

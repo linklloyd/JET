@@ -7,6 +7,14 @@ import { fileToDataURL, loadImage, downloadBlob } from '../../lib/utils'
 import { encodeGif } from '../../lib/gif-encoder'
 import { PreviewCanvas } from '../../components/ui/PreviewCanvas'
 
+type SeparateMode = 'none' | 'rows' | 'cols'
+
+interface GeneratedGif {
+  label: string
+  blob: Blob
+  url: string
+}
+
 export function SpriteToGifPage() {
   const [image, setImage] = useState<HTMLImageElement | null>(null)
   const [cols, setCols] = useState(4)
@@ -16,8 +24,10 @@ export function SpriteToGifPage() {
   const [playing, setPlaying] = useState(true)
   const [currentFrame, setCurrentFrame] = useState(0)
   const [generating, setGenerating] = useState(false)
+  const [separateMode, setSeparateMode] = useState<SeparateMode>('none')
   const [gifBlob, setGifBlob] = useState<Blob | null>(null)
   const [gifUrl, setGifUrl] = useState<string | null>(null)
+  const [separateGifs, setSeparateGifs] = useState<GeneratedGif[]>([])
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef = useRef<number>(0)
   const lastTimeRef = useRef(0)
@@ -28,6 +38,7 @@ export function SpriteToGifPage() {
     setImage(img)
     setGifBlob(null)
     setGifUrl(null)
+    setSeparateGifs((prev) => { prev.forEach((g) => URL.revokeObjectURL(g.url)); return [] })
     setCurrentFrame(0)
   }
 
@@ -88,40 +99,93 @@ export function SpriteToGifPage() {
     if (!image) return
     setGenerating(true)
 
-    // Build GIF manually using minimal GIF encoder
     const w = frameW * scale
     const h = frameH * scale
-    const delay = Math.round(100 / fps) // GIF delay is in centiseconds
+    const delay = Math.round(100 / fps)
     const tempCanvas = document.createElement('canvas')
     tempCanvas.width = w
     tempCanvas.height = h
     const ctx = tempCanvas.getContext('2d')!
     ctx.imageSmoothingEnabled = false
 
-    // Collect frames as ImageData
-    const frames: ImageData[] = []
-    for (let i = 0; i < totalFrames; i++) {
-      const col = i % cols
-      const row = Math.floor(i / cols)
-      ctx.clearRect(0, 0, w, h)
-      ctx.drawImage(image, col * frameW, row * frameH, frameW, frameH, 0, 0, w, h)
-      frames.push(ctx.getImageData(0, 0, w, h))
+    // Clean up previous separate GIFs
+    separateGifs.forEach((g) => URL.revokeObjectURL(g.url))
+    setSeparateGifs([])
+
+    if (separateMode === 'rows') {
+      // Generate one GIF per row
+      const gifs: GeneratedGif[] = []
+      for (let r = 0; r < rows; r++) {
+        const frames: ImageData[] = []
+        for (let c = 0; c < cols; c++) {
+          ctx.clearRect(0, 0, w, h)
+          ctx.drawImage(image, c * frameW, r * frameH, frameW, frameH, 0, 0, w, h)
+          frames.push(ctx.getImageData(0, 0, w, h))
+        }
+        const gifData = encodeGif(w, h, frames, delay)
+        const blob = new Blob([gifData.buffer as ArrayBuffer], { type: 'image/gif' })
+        gifs.push({ label: `Row ${r + 1}`, blob, url: URL.createObjectURL(blob) })
+      }
+      setSeparateGifs(gifs)
+      if (gifUrl) URL.revokeObjectURL(gifUrl)
+      setGifBlob(null)
+      setGifUrl(null)
+    } else if (separateMode === 'cols') {
+      // Generate one GIF per column
+      const gifs: GeneratedGif[] = []
+      for (let c = 0; c < cols; c++) {
+        const frames: ImageData[] = []
+        for (let r = 0; r < rows; r++) {
+          ctx.clearRect(0, 0, w, h)
+          ctx.drawImage(image, c * frameW, r * frameH, frameW, frameH, 0, 0, w, h)
+          frames.push(ctx.getImageData(0, 0, w, h))
+        }
+        const gifData = encodeGif(w, h, frames, delay)
+        const blob = new Blob([gifData.buffer as ArrayBuffer], { type: 'image/gif' })
+        gifs.push({ label: `Col ${c + 1}`, blob, url: URL.createObjectURL(blob) })
+      }
+      setSeparateGifs(gifs)
+      if (gifUrl) URL.revokeObjectURL(gifUrl)
+      setGifBlob(null)
+      setGifUrl(null)
+    } else {
+      // All frames as single GIF
+      const frames: ImageData[] = []
+      for (let i = 0; i < totalFrames; i++) {
+        const col = i % cols
+        const row = Math.floor(i / cols)
+        ctx.clearRect(0, 0, w, h)
+        ctx.drawImage(image, col * frameW, row * frameH, frameW, frameH, 0, 0, w, h)
+        frames.push(ctx.getImageData(0, 0, w, h))
+      }
+      const gifData = encodeGif(w, h, frames, delay)
+      const blob = new Blob([gifData.buffer as ArrayBuffer], { type: 'image/gif' })
+      if (gifUrl) URL.revokeObjectURL(gifUrl)
+      setGifBlob(blob)
+      setGifUrl(URL.createObjectURL(blob))
     }
 
-    // Encode GIF
-    const gifData = encodeGif(w, h, frames, delay)
-    const blob = new Blob([gifData.buffer as ArrayBuffer], { type: 'image/gif' })
-
-    if (gifUrl) URL.revokeObjectURL(gifUrl)
-    const url = URL.createObjectURL(blob)
-    setGifBlob(blob)
-    setGifUrl(url)
     setGenerating(false)
   }
 
   const handleDownload = () => {
     if (!gifBlob) return
     downloadBlob(gifBlob, 'sprite_animation.gif')
+  }
+
+  const handleDownloadSeparate = (gif: GeneratedGif) => {
+    downloadBlob(gif.blob, `animation_${gif.label.toLowerCase().replace(' ', '_')}.gif`)
+  }
+
+  const handleDownloadAllSeparate = async () => {
+    const JSZip = (await import('jszip')).default
+    const zip = new JSZip()
+    for (const gif of separateGifs) {
+      const buf = await gif.blob.arrayBuffer()
+      zip.file(`${gif.label.toLowerCase().replace(' ', '_')}.gif`, buf)
+    }
+    const blob = await zip.generateAsync({ type: 'blob' })
+    downloadBlob(blob, 'animations.zip')
   }
 
   return (
@@ -163,6 +227,36 @@ export function SpriteToGifPage() {
                 <img src={gifUrl} alt="Generated GIF" style={{ imageRendering: 'pixelated' }} />
               </PreviewCanvas>
             )}
+
+            {separateGifs.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-zinc-700">Generated {separateGifs.length} animations</p>
+                  <Button onClick={handleDownloadAllSeparate} size="sm" variant="secondary">
+                    <Download size={12} /> Download All (ZIP)
+                  </Button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {separateGifs.map((gif, i) => (
+                    <div key={i} className="bg-white border border-zinc-200 rounded-lg p-2 space-y-2">
+                      <div className="bg-zinc-100 rounded flex items-center justify-center p-2 min-h-[64px]">
+                        <img src={gif.url} alt={gif.label} style={{ imageRendering: 'pixelated' }} className="max-w-full max-h-24" />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-medium text-zinc-600">{gif.label}</span>
+                        <button
+                          onClick={() => handleDownloadSeparate(gif)}
+                          className="text-zinc-400 hover:text-blue-600 transition-colors"
+                          title="Download"
+                        >
+                          <Download size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Controls */}
@@ -194,8 +288,35 @@ export function SpriteToGifPage() {
                 onChange={(e) => setScale(+(e.target as HTMLInputElement).value)} />
             </div>
 
+            {/* Separate by rows/cols */}
+            {rows > 1 && (
+              <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
+                <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Separate Animations</p>
+                <p className="text-[11px] text-zinc-500">Generate one GIF per row or column instead of a single GIF</p>
+                <div className="flex rounded-lg border border-zinc-200 overflow-hidden">
+                  {(['none', 'rows', 'cols'] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setSeparateMode(m)}
+                      className={`flex-1 px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+                        separateMode === m ? 'bg-blue-600 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
+                      }`}
+                    >
+                      {m === 'none' ? 'All Frames' : m === 'rows' ? `By Rows (${rows})` : `By Cols (${cols})`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <Button onClick={handleGenerateGif} disabled={generating} className="w-full">
-              {generating ? <><Loader2 size={16} className="animate-spin" /> Generating...</> : 'Generate GIF'}
+              {generating ? (
+                <><Loader2 size={16} className="animate-spin" /> Generating...</>
+              ) : separateMode !== 'none' ? (
+                `Generate ${separateMode === 'rows' ? rows : cols} GIFs`
+              ) : (
+                'Generate GIF'
+              )}
             </Button>
           </div>
         </div>

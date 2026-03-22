@@ -3,7 +3,7 @@ export type ToolStepType =
   | 'image-to-pixelart' | 'pixel-upscale' | 'image-upscale'
   | 'recolor' | 'format-convert' | 'dither' | 'palette-swap'
 
-export type DataType = 'blob' | 'blob[]' | 'file'
+export type DataType = 'blob' | 'blob[]'
 
 export interface ConfigField {
   key: string

@@ -2,8 +2,10 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
 import { Slider } from '../../components/ui/Slider'
-import { Download } from 'lucide-react'
+import { Download, Loader2 } from 'lucide-react'
 import { fileToDataURL, loadImage, downloadBlob, canvasToBlob } from '../../lib/utils'
+import { decodeGifFrames, type GifFrame } from '../../lib/gif-decoder'
+import { encodeGif } from '../../lib/gif-encoder'
 
 export function ImageToPixelartPage() {
   const [image, setImage] = useState<HTMLImageElement | null>(null)
@@ -11,13 +13,44 @@ export function ImageToPixelartPage() {
   const [colorCount, setColorCount] = useState(16)
   const [outline, setOutline] = useState(false)
   const [dithering, setDithering] = useState(false)
+  const [isGif, setIsGif] = useState(false)
+  const [gifFrames, setGifFrames] = useState<GifFrame[]>([])
+  const [sourceFile, setSourceFile] = useState<File | null>(null)
+  const [resultGifUrl, setResultGifUrl] = useState<string | null>(null)
+  const [resultGifBlob, setResultGifBlob] = useState<Blob | null>(null)
+  const [processingGif, setProcessingGif] = useState(false)
   const srcCanvasRef = useRef<HTMLCanvasElement>(null)
   const dstCanvasRef = useRef<HTMLCanvasElement>(null)
 
   const handleFiles = async (files: File[]) => {
-    const url = await fileToDataURL(files[0])
-    const img = await loadImage(url)
-    setImage(img)
+    const file = files[0]
+    setSourceFile(file)
+    const isGifFile = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')
+    setIsGif(isGifFile)
+    setResultGifUrl(null)
+    setResultGifBlob(null)
+
+    if (isGifFile) {
+      const buf = await file.arrayBuffer()
+      const { frames, width, height } = decodeGifFrames(new Uint8Array(buf))
+      setGifFrames(frames)
+      // Show first frame as image for preview
+      if (frames.length > 0) {
+        const c = document.createElement('canvas')
+        c.width = width
+        c.height = height
+        c.getContext('2d')!.putImageData(frames[0].imageData, 0, 0)
+        const img = new Image()
+        img.src = c.toDataURL()
+        await new Promise<void>((r) => { img.onload = () => r() })
+        setImage(img)
+      }
+    } else {
+      setGifFrames([])
+      const url = await fileToDataURL(file)
+      const img = await loadImage(url)
+      setImage(img)
+    }
   }
 
   useEffect(() => {
@@ -68,7 +101,80 @@ export function ImageToPixelartPage() {
 
   useEffect(() => { pixelate() }, [pixelate])
 
+  /** Pixelate an ImageData (for GIF frame processing) */
+  const pixelateImageData = (srcData: ImageData): ImageData => {
+    const targetW = Math.ceil(srcData.width / pixelSize)
+    const targetH = Math.ceil(srcData.height / pixelSize)
+
+    // Draw the ImageData onto a canvas so we can downscale it
+    const srcCanvas = document.createElement('canvas')
+    srcCanvas.width = srcData.width
+    srcCanvas.height = srcData.height
+    srcCanvas.getContext('2d')!.putImageData(srcData, 0, 0)
+
+    // Downscale
+    const smallCanvas = document.createElement('canvas')
+    smallCanvas.width = targetW
+    smallCanvas.height = targetH
+    const smallCtx = smallCanvas.getContext('2d')!
+    smallCtx.imageSmoothingEnabled = true
+    smallCtx.imageSmoothingQuality = 'medium'
+    smallCtx.drawImage(srcCanvas, 0, 0, targetW, targetH)
+
+    // Reduce colors
+    const imgData = smallCtx.getImageData(0, 0, targetW, targetH)
+    const reduced = reduceColors(imgData, colorCount, dithering)
+    smallCtx.putImageData(reduced, 0, 0)
+
+    // Upscale with nearest neighbor
+    const outputW = targetW * pixelSize
+    const outputH = targetH * pixelSize
+    const outCanvas = document.createElement('canvas')
+    outCanvas.width = outputW
+    outCanvas.height = outputH
+    const outCtx = outCanvas.getContext('2d')!
+    outCtx.imageSmoothingEnabled = false
+    outCtx.drawImage(smallCanvas, 0, 0, outputW, outputH)
+
+    if (outline) {
+      drawOutlines(outCtx, reduced, pixelSize, outputW, outputH)
+    }
+
+    return outCtx.getImageData(0, 0, outputW, outputH)
+  }
+
+  const handleGenerateGif = async () => {
+    if (!isGif || gifFrames.length === 0) return
+    setProcessingGif(true)
+
+    // Process each frame
+    const processedFrames: ImageData[] = []
+    let avgDelay = 10
+    let totalDelay = 0
+
+    for (const frame of gifFrames) {
+      processedFrames.push(pixelateImageData(frame.imageData))
+      totalDelay += frame.delay
+    }
+    avgDelay = Math.round(totalDelay / gifFrames.length)
+
+    const outW = processedFrames[0].width
+    const outH = processedFrames[0].height
+
+    const gifData = encodeGif(outW, outH, processedFrames, avgDelay)
+    const blob = new Blob([gifData.buffer as ArrayBuffer], { type: 'image/gif' })
+
+    if (resultGifUrl) URL.revokeObjectURL(resultGifUrl)
+    setResultGifBlob(blob)
+    setResultGifUrl(URL.createObjectURL(blob))
+    setProcessingGif(false)
+  }
+
   const handleDownload = async () => {
+    if (isGif && resultGifBlob) {
+      downloadBlob(resultGifBlob, `pixelart_${pixelSize}px.gif`)
+      return
+    }
     if (!dstCanvasRef.current) return
     const blob = await canvasToBlob(dstCanvasRef.current)
     const baseName = 'pixelart'
@@ -99,16 +205,26 @@ export function ImageToPixelartPage() {
         <p className="text-sm text-zinc-500 mt-2">Convert any image into pixel art with adjustable resolution and colors</p>
       </div>
 
-      <FileDropzone onFiles={handleFiles} accept="image/*" label="Drop an image to pixelate" />
+      <FileDropzone onFiles={handleFiles} accept="image/*,.gif" label="Drop an image or GIF to pixelate" description="Supports PNG, JPG, and animated GIF files" />
 
       {image && (
         <div className="grid grid-cols-[1fr_260px] gap-6">
           <div className="space-y-4">
+            {isGif && (
+              <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">
+                🎞️ Animated GIF detected — {gifFrames.length} frames will be pixelated
+              </p>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white border border-zinc-200 rounded-lg p-3">
                 <p className="text-xs font-medium text-zinc-500 mb-2">Original ({image.width}x{image.height})</p>
                 <div className="overflow-auto max-h-64 bg-zinc-100 rounded p-1">
-                  <canvas ref={srcCanvasRef} className="max-w-full" />
+                  {isGif && sourceFile ? (
+                    <img src={URL.createObjectURL(sourceFile)} alt="GIF preview" className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                  ) : (
+                    <canvas ref={srcCanvasRef} className="max-w-full" />
+                  )}
                 </div>
               </div>
               <div className="bg-white border border-zinc-200 rounded-lg p-3">
@@ -118,19 +234,36 @@ export function ImageToPixelartPage() {
                   </p>
                 </div>
                 <div className="overflow-auto max-h-64 bg-zinc-100 rounded p-1" style={{ imageRendering: 'pixelated' }}>
-                  <canvas ref={dstCanvasRef} className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                  {isGif && resultGifUrl ? (
+                    <img src={resultGifUrl} alt="Pixel art GIF" className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                  ) : (
+                    <canvas ref={dstCanvasRef} className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                  )}
                 </div>
               </div>
             </div>
 
-            <div className="flex gap-2">
-              <Button onClick={handleDownload} size="sm" className="flex-1">
-                <Download size={14} /> Download (upscaled)
-              </Button>
-              <Button onClick={handleDownloadSmall} size="sm" variant="secondary" className="flex-1">
-                <Download size={14} /> Download (1:1 pixel)
-              </Button>
-            </div>
+            {isGif ? (
+              <div className="flex gap-2">
+                <Button onClick={handleGenerateGif} disabled={processingGif} className="flex-1">
+                  {processingGif ? <><Loader2 size={14} className="animate-spin" /> Processing {gifFrames.length} frames...</> : `Generate Pixel Art GIF (${gifFrames.length} frames)`}
+                </Button>
+                {resultGifBlob && (
+                  <Button onClick={handleDownload} size="sm" variant="secondary">
+                    <Download size={14} /> Download GIF
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button onClick={handleDownload} size="sm" className="flex-1">
+                  <Download size={14} /> Download (upscaled)
+                </Button>
+                <Button onClick={handleDownloadSmall} size="sm" variant="secondary" className="flex-1">
+                  <Download size={14} /> Download (1:1 pixel)
+                </Button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-4">

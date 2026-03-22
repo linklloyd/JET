@@ -204,7 +204,7 @@ function CompileView() {
   )
 }
 
-type ExportMode = 'frames' | 'rows'
+type ExportMode = 'frames' | 'rows' | 'cols'
 
 function DecompileView() {
   const [image, setImage] = useState<HTMLImageElement | null>(null)
@@ -335,10 +335,9 @@ function DecompileView() {
       }
       const blob = await zip.generateAsync({ type: 'blob' })
       downloadBlob(blob, 'frames.zip')
-    } else {
+    } else if (exportMode === 'rows') {
       // Export each selected row as a spritesheet strip
       if (selRows.length === 1) {
-        // Single row → download directly as PNG
         const rowCanvas = document.createElement('canvas')
         rowCanvas.width = selCols.length * effectiveFrameW
         rowCanvas.height = effectiveFrameH
@@ -349,7 +348,6 @@ function DecompileView() {
         const blob = await canvasToBlob(rowCanvas)
         downloadBlob(blob, `row_${selRows[0]}.png`)
       } else {
-        // Multiple rows → ZIP of row strips
         const zip = new JSZip()
         for (const r of selRows) {
           const rowCanvas = document.createElement('canvas')
@@ -364,6 +362,34 @@ function DecompileView() {
         }
         const blob = await zip.generateAsync({ type: 'blob' })
         downloadBlob(blob, 'rows.zip')
+      }
+    } else {
+      // Export each selected column as a vertical strip
+      if (selCols.length === 1) {
+        const colCanvas = document.createElement('canvas')
+        colCanvas.width = effectiveFrameW
+        colCanvas.height = selRows.length * effectiveFrameH
+        const ctx = colCanvas.getContext('2d')!
+        selRows.forEach((r, i) => {
+          ctx.drawImage(image, selCols[0] * effectiveFrameW, r * effectiveFrameH, effectiveFrameW, effectiveFrameH, 0, i * effectiveFrameH, effectiveFrameW, effectiveFrameH)
+        })
+        const blob = await canvasToBlob(colCanvas)
+        downloadBlob(blob, `col_${selCols[0]}.png`)
+      } else {
+        const zip = new JSZip()
+        for (const c of selCols) {
+          const colCanvas = document.createElement('canvas')
+          colCanvas.width = effectiveFrameW
+          colCanvas.height = selRows.length * effectiveFrameH
+          const ctx = colCanvas.getContext('2d')!
+          selRows.forEach((r, i) => {
+            ctx.drawImage(image, c * effectiveFrameW, r * effectiveFrameH, effectiveFrameW, effectiveFrameH, 0, i * effectiveFrameH, effectiveFrameW, effectiveFrameH)
+          })
+          const data = colCanvas.toDataURL('image/png').split(',')[1]
+          zip.file(`col_${String(c).padStart(2, '0')}.png`, data, { base64: true })
+        }
+        const blob = await zip.generateAsync({ type: 'blob' })
+        downloadBlob(blob, 'columns.zip')
       }
     }
 
@@ -490,26 +516,21 @@ function DecompileView() {
               <div className="flex items-center gap-2">
                 {/* Export mode toggle */}
                 <div className="flex rounded-lg border border-zinc-200 overflow-hidden">
-                  <button
-                    onClick={() => setExportMode('frames')}
-                    className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                      exportMode === 'frames' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
-                    }`}
-                  >
-                    Frames
-                  </button>
-                  <button
-                    onClick={() => setExportMode('rows')}
-                    className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                      exportMode === 'rows' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
-                    }`}
-                  >
-                    Rows
-                  </button>
+                  {(['frames', 'rows', 'cols'] as const).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setExportMode(m)}
+                      className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                        exportMode === m ? 'bg-blue-600 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
+                      }`}
+                    >
+                      {m === 'frames' ? 'Frames' : m === 'rows' ? 'Rows' : 'Columns'}
+                    </button>
+                  ))}
                 </div>
                 <Button onClick={handleExport} disabled={exporting || selectedFrameCount === 0} size="sm">
                   {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-                  {exportMode === 'frames' ? 'Export Frames' : 'Export Rows'}
+                  {exportMode === 'frames' ? 'Export Frames' : exportMode === 'rows' ? 'Export Rows' : 'Export Columns'}
                 </Button>
               </div>
             </div>
@@ -519,7 +540,9 @@ function DecompileView() {
             <p className="text-[11px] text-zinc-400 mt-2">
               {exportMode === 'frames'
                 ? `Will export ${selectedFrameCount} individual frame PNGs as ZIP`
-                : `Will export ${[...selectedRows].length} row strip${[...selectedRows].length !== 1 ? 's' : ''} (${[...selectedCols].length} cols each)`
+                : exportMode === 'rows'
+                ? `Will export ${[...selectedRows].length} row strip${[...selectedRows].length !== 1 ? 's' : ''} (${[...selectedCols].length} cols each)`
+                : `Will export ${[...selectedCols].length} column strip${[...selectedCols].length !== 1 ? 's' : ''} (${[...selectedRows].length} rows each)`
               }
             </p>
           </div>

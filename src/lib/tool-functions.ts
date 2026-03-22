@@ -93,7 +93,7 @@ export async function compileSpritesheet(
 
 export async function spriteToGif(
   input: Blob,
-  config: { cols: number; rows: number; fps: number; scale?: number; pingPong?: boolean }
+  config: { cols: number; rows: number; fps: number; scale?: number; pingPong?: boolean; rowIndex?: number }
 ): Promise<Blob> {
   const img = await blobToImage(input)
   const cellW = Math.floor(img.width / config.cols)
@@ -101,6 +101,7 @@ export async function spriteToGif(
   const scale = config.scale ?? 1
   const outW = Math.round(cellW * scale)
   const outH = Math.round(cellH * scale)
+  const rowIndex = config.rowIndex ?? -1
 
   const srcCanvas = document.createElement('canvas')
   srcCanvas.width = cellW
@@ -115,7 +116,10 @@ export async function spriteToGif(
 
   const frames: ImageData[] = []
 
-  for (let row = 0; row < config.rows; row++) {
+  const startRow = rowIndex >= 0 ? rowIndex : 0
+  const endRow = rowIndex >= 0 ? rowIndex : config.rows - 1
+
+  for (let row = startRow; row <= endRow; row++) {
     for (let col = 0; col < config.cols; col++) {
       srcCtx.clearRect(0, 0, cellW, cellH)
       srcCtx.drawImage(img, col * cellW, row * cellH, cellW, cellH, 0, 0, cellW, cellH)
@@ -541,7 +545,7 @@ const PRESET_ANGLES: Record<string, { angles: number[]; elevation: number; useOr
 }
 
 export async function capture3DSpritesheet(
-  _input: Blob | Blob[],
+  input: Blob | Blob[],
   config: {
     modelFile?: File
     textureFile?: File
@@ -555,6 +559,11 @@ export async function capture3DSpritesheet(
 ): Promise<Blob> {
   const modelFile = config.modelFile
   if (!modelFile) throw new Error('No 3D model file provided')
+
+  // Use pipeline input as texture if no manual texture is provided
+  // (input blob from a previous step can serve as the texture image)
+  const inputBlob = Array.isArray(input) ? input[0] : input
+  const hasInputTexture = inputBlob && inputBlob.size > 0
 
   const presetKey = config.preset || 'rpg8'
   const presetDef = PRESET_ANGLES[presetKey] || PRESET_ANGLES.rpg8
@@ -608,9 +617,10 @@ export async function capture3DSpritesheet(
     }
   })
 
-  // Apply texture if provided
-  if (config.textureFile) {
-    const texUrl = URL.createObjectURL(config.textureFile)
+  // Apply texture — prefer manual textureFile, fall back to pipeline input blob
+  const textureSource: Blob | File | null = config.textureFile ?? (hasInputTexture ? inputBlob : null)
+  if (textureSource) {
+    const texUrl = URL.createObjectURL(textureSource)
     const texture = await new Promise<THREE.Texture>((resolve) => {
       new THREE.TextureLoader().load(texUrl, (tex) => {
         URL.revokeObjectURL(texUrl)

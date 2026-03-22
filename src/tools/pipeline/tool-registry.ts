@@ -4,7 +4,7 @@ export const TOOL_DEFS: Record<ToolStepType, ToolStepDef> = {
   '3d-spritesheet': {
     type: '3d-spritesheet',
     label: '3D Spritesheet',
-    inputType: 'file',
+    inputType: 'blob',
     outputType: 'blob',
     configFields: [
       { key: 'modelFile', label: 'Model (.fbx/.glb)', type: 'file', default: null },
@@ -73,6 +73,12 @@ export const TOOL_DEFS: Record<ToolStepType, ToolStepDef> = {
       { key: 'fps', label: 'FPS', type: 'number', min: 1, max: 60, step: 1, default: 12 },
       { key: 'scale', label: 'Scale', type: 'number', min: 1, max: 8, step: 1, default: 1 },
       { key: 'pingPong', label: 'Ping Pong', type: 'checkbox', default: false },
+      {
+        key: 'rowIndex',
+        label: 'Row Only (-1=all)',
+        type: 'number',
+        min: -1, max: 63, step: 1, default: -1,
+      },
     ],
   },
   'image-to-pixelart': {
@@ -219,15 +225,10 @@ export const TOOL_DEFS: Record<ToolStepType, ToolStepDef> = {
   },
 }
 
-export function getCompatibleSteps(outputType: DataType, isFirst?: boolean): ToolStepType[] {
-  const steps = (Object.keys(TOOL_DEFS) as ToolStepType[]).filter(
+export function getCompatibleSteps(outputType: DataType): ToolStepType[] {
+  return (Object.keys(TOOL_DEFS) as ToolStepType[]).filter(
     (key) => TOOL_DEFS[key].inputType === outputType,
   )
-  // Allow 3D spritesheet as first step (it has inputType 'file')
-  if (isFirst) {
-    steps.push('3d-spritesheet')
-  }
-  return steps
 }
 
 export function getDefaultConfig(type: ToolStepType): Record<string, unknown> {

@@ -1,8 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
-import { Download, Plus, Trash2 } from 'lucide-react'
+import { Download, Plus, Trash2, Loader2 } from 'lucide-react'
 import { fileToDataURL, loadImage, downloadBlob, canvasToBlob } from '../../lib/utils'
+import { encodeGif } from '../../lib/gif-encoder'
+import { decodeGifFrames, type GifFrame } from '../../lib/gif-decoder'
 
 interface ColorMapping {
   from: string
@@ -12,6 +14,13 @@ interface ColorMapping {
 export function RecolorPage() {
   const [mode, setMode] = useState<'manual' | 'lut'>('manual')
   const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null)
+  const [sourceFile, setSourceFile] = useState<File | null>(null)
+  const [isGif, setIsGif] = useState(false)
+  const [gifFrames, setGifFrames] = useState<GifFrame[]>([])
+  const [gifDimensions, setGifDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
+  const [recoloredGifUrl, setRecoloredGifUrl] = useState<string | null>(null)
+  const [recoloredGifBlob, setRecoloredGifBlob] = useState<Blob | null>(null)
+  const [processing, setProcessing] = useState(false)
   const [mappings, setMappings] = useState<ColorMapping[]>([
     { from: '#000000', to: '#1a1a2e' },
   ])
@@ -24,9 +33,35 @@ export function RecolorPage() {
   const dstCanvasRef = useRef<HTMLCanvasElement>(null)
 
   const handleSourceFiles = async (files: File[]) => {
-    const url = await fileToDataURL(files[0])
-    const img = await loadImage(url)
-    setSourceImage(img)
+    const file = files[0]
+    setSourceFile(file)
+    const gifFile = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')
+    setIsGif(gifFile)
+    setRecoloredGifUrl(null)
+    setRecoloredGifBlob(null)
+
+    if (gifFile) {
+      const buf = await file.arrayBuffer()
+      const { frames, width, height } = decodeGifFrames(new Uint8Array(buf))
+      setGifFrames(frames)
+      setGifDimensions({ width, height })
+      // Show first frame as preview
+      if (frames.length > 0) {
+        const c = document.createElement('canvas')
+        c.width = width
+        c.height = height
+        c.getContext('2d')!.putImageData(frames[0].imageData, 0, 0)
+        const img = new Image()
+        img.src = c.toDataURL()
+        await new Promise<void>((r) => { img.onload = () => r() })
+        setSourceImage(img)
+      }
+    } else {
+      setGifFrames([])
+      const url = await fileToDataURL(file)
+      const img = await loadImage(url)
+      setSourceImage(img)
+    }
   }
 
   const handleLutSourceFiles = async (files: File[]) => {
@@ -108,23 +143,13 @@ export function RecolorPage() {
     ctx.drawImage(sourceImage, 0, 0)
   }, [sourceImage])
 
-  // Apply recolor
-  const applyRecolor = () => {
-    if (!sourceImage || !dstCanvasRef.current) return
-    const c = dstCanvasRef.current
-    c.width = sourceImage.width
-    c.height = sourceImage.height
-    const ctx = c.getContext('2d')!
-    ctx.drawImage(sourceImage, 0, 0)
-    const imgData = ctx.getImageData(0, 0, c.width, c.height)
-    const data = imgData.data
-
+  // Recolor pixel data in-place
+  const recolorPixels = (data: Uint8ClampedArray) => {
     if (mode === 'manual') {
       const parsedMappings = mappings.map((m) => ({
         from: hexToRgb(m.from),
         to: hexToRgb(m.to),
       }))
-
       for (let i = 0; i < data.length; i += 4) {
         if (data[i + 3] < 128) continue
         for (const m of parsedMappings) {
@@ -149,11 +174,65 @@ export function RecolorPage() {
         }
       }
     }
+  }
 
-    ctx.putImageData(imgData, 0, 0)
+  // Apply recolor
+  const applyRecolor = async () => {
+    if (!sourceImage) return
+
+    if (isGif && gifFrames.length > 0) {
+      setProcessing(true)
+      // Recolor every GIF frame, then re-encode
+      const { width, height } = gifDimensions
+      const recoloredFrames: ImageData[] = []
+      let avgDelay = 10
+      let totalDelay = 0
+
+      for (const frame of gifFrames) {
+        const copy = new ImageData(
+          new Uint8ClampedArray(frame.imageData.data),
+          frame.imageData.width,
+          frame.imageData.height
+        )
+        recolorPixels(copy.data)
+        recoloredFrames.push(copy)
+        totalDelay += frame.delay
+      }
+      avgDelay = Math.round(totalDelay / gifFrames.length)
+
+      const gifData = encodeGif(width, height, recoloredFrames, avgDelay)
+      const blob = new Blob([gifData.buffer as ArrayBuffer], { type: 'image/gif' })
+      if (recoloredGifUrl) URL.revokeObjectURL(recoloredGifUrl)
+      const url = URL.createObjectURL(blob)
+      setRecoloredGifUrl(url)
+      setRecoloredGifBlob(blob)
+
+      // Also draw the first recolored frame on the dest canvas
+      if (dstCanvasRef.current && recoloredFrames.length > 0) {
+        const c = dstCanvasRef.current
+        c.width = width
+        c.height = height
+        c.getContext('2d')!.putImageData(recoloredFrames[0], 0, 0)
+      }
+      setProcessing(false)
+    } else {
+      if (!dstCanvasRef.current) return
+      const c = dstCanvasRef.current
+      c.width = sourceImage.width
+      c.height = sourceImage.height
+      const ctx = c.getContext('2d')!
+      ctx.drawImage(sourceImage, 0, 0)
+      const imgData = ctx.getImageData(0, 0, c.width, c.height)
+      recolorPixels(imgData.data)
+      ctx.putImageData(imgData, 0, 0)
+    }
   }
 
   const handleDownload = async () => {
+    if (isGif && recoloredGifBlob) {
+      downloadBlob(recoloredGifBlob, 'recolored.gif')
+      return
+    }
     if (!dstCanvasRef.current) return
     const blob = await canvasToBlob(dstCanvasRef.current)
     downloadBlob(blob, 'recolored.png')
@@ -178,7 +257,7 @@ export function RecolorPage() {
       </div>
 
       {/* Source Image */}
-      <FileDropzone onFiles={handleSourceFiles} accept="image/*" label="Drop sprite to recolor" />
+      <FileDropzone onFiles={handleSourceFiles} accept="image/*,.gif" label="Drop sprite or GIF to recolor" description="Supports PNG, JPG, and animated GIF files" />
 
       {mode === 'lut' && (
         <div className="grid grid-cols-2 gap-4">
@@ -232,24 +311,40 @@ export function RecolorPage() {
             </div>
           )}
 
-          <Button onClick={applyRecolor} disabled={mode === 'lut' && !lutBuilt}>
-            Apply Recolor
+          <Button onClick={applyRecolor} disabled={(mode === 'lut' && !lutBuilt) || processing}>
+            {processing ? <><Loader2 size={16} className="animate-spin" /> Processing GIF...</> : 'Apply Recolor'}
           </Button>
+
+          {isGif && (
+            <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">
+              🎞️ Animated GIF detected — {gifFrames.length} frames will be recolored
+            </p>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white border border-zinc-200 rounded-lg p-3">
               <p className="text-xs font-medium text-zinc-500 mb-2">Original (click to pick color)</p>
               <div className="overflow-auto max-h-64 bg-zinc-100 rounded cursor-crosshair">
-                <canvas ref={srcCanvasRef} onClick={handleSourceClick} className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                {isGif && sourceFile ? (
+                  <img src={URL.createObjectURL(sourceFile)} alt="GIF preview" className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                ) : (
+                  <canvas ref={srcCanvasRef} onClick={handleSourceClick} className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                )}
               </div>
             </div>
             <div className="bg-white border border-zinc-200 rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-medium text-zinc-500">Recolored</p>
-                <Button onClick={handleDownload} size="sm" variant="secondary"><Download size={12} /> Save</Button>
+                <Button onClick={handleDownload} size="sm" variant="secondary" disabled={isGif ? !recoloredGifBlob : false}>
+                  <Download size={12} /> Save {isGif ? 'GIF' : 'PNG'}
+                </Button>
               </div>
               <div className="overflow-auto max-h-64 bg-zinc-100 rounded">
-                <canvas ref={dstCanvasRef} className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                {isGif && recoloredGifUrl ? (
+                  <img src={recoloredGifUrl} alt="Recolored GIF" className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                ) : (
+                  <canvas ref={dstCanvasRef} className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                )}
               </div>
             </div>
           </div>
