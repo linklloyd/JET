@@ -5,7 +5,7 @@ import { MathInput, CollapsibleSection } from '../../components/ui/MathInput'
 import { Select } from '../../components/ui/Select'
 import { Calculator, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { solveIntegral } from './solver'
-import { formatExpression } from '../../lib/math-parser'
+import { formatExpression, latexToAlgebrite } from '../../lib/math-parser'
 import type { IntegralMethod, IntegralResult } from './types'
 
 const VALID_METHODS = ['indefinite', 'definite', 'by-parts', 'substitution', 'partial-fractions'] as const
@@ -56,11 +56,13 @@ function IntegralsView({ method }: { method: IntegralMethod }) {
     if (!expression.trim()) return
 
     try {
+      // Convert MathLive LaTeX to Algebrite-compatible syntax
+      const algebriteExpr = latexToAlgebrite(expression)
       const bounds = method === 'definite' && lowerBound && upperBound
-        ? { lower: lowerBound, upper: upperBound }
+        ? { lower: latexToAlgebrite(lowerBound), upper: latexToAlgebrite(upperBound) }
         : undefined
 
-      const res = solveIntegral(expression, variable, method, bounds)
+      const res = solveIntegral(algebriteExpr, variable, method, bounds)
       setResult(res)
     } catch (err) {
       setResult({

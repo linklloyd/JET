@@ -131,6 +131,105 @@ export function formatExpression(expr: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// LaTeX → Algebrite converter (for MathLive output)
+// ---------------------------------------------------------------------------
+
+/** Convert MathLive LaTeX output to Algebrite-compatible syntax */
+export function latexToAlgebrite(latex: string): string {
+  let s = latex
+
+  // Remove LaTeX whitespace commands
+  s = s.replace(/\\,/g, '')
+  s = s.replace(/\\;/g, '')
+  s = s.replace(/\\!/g, '')
+  s = s.replace(/\\quad/g, '')
+  s = s.replace(/\\qquad/g, '')
+  s = s.replace(/\\ /g, ' ')
+
+  // Strip \left and \right
+  s = s.replace(/\\left/g, '')
+  s = s.replace(/\\right/g, '')
+
+  // Integrals: \int → strip (solver handles integrals separately)
+  s = s.replace(/\\int_?\{?[^}]*\}?\^?\{?[^}]*\}?\s*/g, '')
+  s = s.replace(/\\int\s*/g, '')
+
+  // dx, dt etc at the end
+  s = s.replace(/\\,?d([a-z])$/g, '')
+  s = s.replace(/\s*d([a-z])\s*$/g, '')
+
+  // Fractions: \frac{a}{b} → (a)/(b)
+  // Handle nested fractions by doing multiple passes
+  for (let i = 0; i < 5; i++) {
+    s = s.replace(/\\frac\{([^{}]*)\}\{([^{}]*)\}/g, '($1)/($2)')
+  }
+
+  // Square root: \sqrt{x} → sqrt(x), \sqrt[n]{x} → x^(1/n)
+  s = s.replace(/\\sqrt\[([^\]]+)\]\{([^{}]*)\}/g, '($2)^(1/($1))')
+  s = s.replace(/\\sqrt\{([^{}]*)\}/g, 'sqrt($1)')
+
+  // Powers: x^{2} → x^(2), handle multi-char exponents
+  s = s.replace(/\^{([^{}]*)}/g, '^($1)')
+  // Single char exponent without braces is fine: x^2
+
+  // Subscripts: remove or convert (x_{1} → x1)
+  s = s.replace(/_{([^{}]*)}/g, '$1')
+
+  // Trig functions
+  s = s.replace(/\\sin/g, 'sin')
+  s = s.replace(/\\cos/g, 'cos')
+  s = s.replace(/\\tan/g, 'tan')
+  s = s.replace(/\\cot/g, 'cot')
+  s = s.replace(/\\sec/g, 'sec')
+  s = s.replace(/\\csc/g, 'csc')
+  s = s.replace(/\\arcsin/g, 'arcsin')
+  s = s.replace(/\\arccos/g, 'arccos')
+  s = s.replace(/\\arctan/g, 'arctan')
+  s = s.replace(/\\sinh/g, 'sinh')
+  s = s.replace(/\\cosh/g, 'cosh')
+  s = s.replace(/\\tanh/g, 'tanh')
+
+  // Logarithms
+  s = s.replace(/\\ln/g, 'ln')
+  s = s.replace(/\\log/g, 'log')
+
+  // Constants
+  s = s.replace(/\\pi/g, 'pi')
+  s = s.replace(/\\infty/g, 'inf')
+  s = s.replace(/\\theta/g, 'theta')
+  s = s.replace(/\\alpha/g, 'alpha')
+  s = s.replace(/\\beta/g, 'beta')
+
+  // Exponential: e^{x} → exp(x) — only when it's Euler's e
+  s = s.replace(/\\exp/g, 'exp')
+
+  // Multiplication: \cdot and \times → *
+  s = s.replace(/\\cdot/g, '*')
+  s = s.replace(/\\times/g, '*')
+
+  // Absolute value: |x| or \lvert x \rvert
+  s = s.replace(/\\lvert/g, 'abs(')
+  s = s.replace(/\\rvert/g, ')')
+  s = s.replace(/\|([^|]+)\|/g, 'abs($1)')
+
+  // Remove remaining backslash commands that are just display
+  s = s.replace(/\\operatorname\{([^}]*)\}/g, '$1')
+
+  // Clean up braces that are just grouping
+  s = s.replace(/\{([^{}]*)\}/g, '($1)')
+
+  // Implicit multiplication: 2x → 2*x, )(  → )*(
+  s = s.replace(/(\d)([a-zA-Z])/g, '$1*$2')
+  s = s.replace(/\)\(/g, ')*(')
+  s = s.replace(/\)([a-zA-Z])/g, ')*$1')
+
+  // Clean up multiple spaces
+  s = s.replace(/\s+/g, ' ').trim()
+
+  return s
+}
+
+// ---------------------------------------------------------------------------
 // Expression validation
 // ---------------------------------------------------------------------------
 
