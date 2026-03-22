@@ -51,6 +51,31 @@ export function Spritesheet3DPage() {
 
   useEffect(() => { playingRef.current = playing }, [playing])
 
+  // Sync preview camera to capture settings (elevation, distance, preset)
+  // This positions the camera at the preset's first angle + elevation so the user
+  // sees the perspective that will actually be captured, while OrbitControls
+  // still allows free rotation from that starting point.
+  useEffect(() => {
+    const camera = cameraRef.current
+    const controls = controlsRef.current
+    if (!camera || !controls || !modelLoaded) return
+
+    const preset = presets[presetKey]
+    const elev = presetKey === 'custom' ? elevation : preset.elevation
+    const firstAngle = preset.angles[0] ?? 0
+    const angleRad = (firstAngle * Math.PI) / 180
+    const elevRad = (elev * Math.PI) / 180
+
+    const target = new THREE.Vector3(0, 1, 0)
+    camera.position.set(
+      cameraDistance * Math.sin(angleRad) * Math.cos(elevRad),
+      target.y + cameraDistance * Math.sin(elevRad),
+      cameraDistance * Math.cos(angleRad) * Math.cos(elevRad)
+    )
+    controls.target.copy(target)
+    controls.update()
+  }, [presetKey, elevation, cameraDistance, modelLoaded])
+
   // Init scene
   useEffect(() => {
     if (!containerRef.current) return
