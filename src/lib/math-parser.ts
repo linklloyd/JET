@@ -230,6 +230,64 @@ export function latexToAlgebrite(latex: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Algebrite → LaTeX converter (for rendering results with MathLive)
+// ---------------------------------------------------------------------------
+
+/** Convert Algebrite/formatted expression to LaTeX for MathLive static rendering */
+export function algebriteToLatex(expr: string): string {
+  let s = expr
+
+  // Unicode symbols back to LaTeX
+  s = s.replace(/π/g, '\\pi ')
+  s = s.replace(/∞/g, '\\infty ')
+  s = s.replace(/√\(/g, '\\sqrt{')
+  // Fix sqrt closing: find matching paren after sqrt
+  s = s.replace(/∫/g, '\\int ')
+  s = s.replace(/−/g, '-')
+
+  // Unicode superscripts back to LaTeX exponents
+  const supMap: Record<string, string> = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' }
+  s = s.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹]+/g, (match) => '^{' + [...match].map((c) => supMap[c] || c).join('') + '}')
+
+  // Fractions: (a)/(b) patterns
+  s = s.replace(/\(([^()]+)\)\/\(([^()]+)\)/g, '\\frac{$1}{$2}')
+
+  // Simple numeric fractions: 1/3, 3/2, etc (not inside larger expressions)
+  s = s.replace(/(\d+)\/(\d+)/g, '\\frac{$1}{$2}')
+
+  // sqrt(x) → \sqrt{x}
+  s = s.replace(/sqrt\(([^()]*)\)/g, '\\sqrt{$1}')
+
+  // Trig functions
+  s = s.replace(/\bsin\b/g, '\\sin')
+  s = s.replace(/\bcos\b/g, '\\cos')
+  s = s.replace(/\btan\b/g, '\\tan')
+  s = s.replace(/\bcot\b/g, '\\cot')
+  s = s.replace(/\bsec\b/g, '\\sec')
+  s = s.replace(/\bcsc\b/g, '\\csc')
+  s = s.replace(/\bln\b/g, '\\ln')
+  s = s.replace(/\blog\b/g, '\\log')
+  s = s.replace(/\barcsin\b/g, '\\arcsin')
+  s = s.replace(/\barccos\b/g, '\\arccos')
+  s = s.replace(/\barctan\b/g, '\\arctan')
+
+  // Constants
+  s = s.replace(/\bpi\b/g, '\\pi')
+  s = s.replace(/\binf\b/g, '\\infty')
+
+  // Exponents: x^2 → x^{2}, x^(n+1) → x^{n+1}
+  s = s.replace(/\^(\d+)/g, '^{$1}')
+  s = s.replace(/\^\(([^()]*)\)/g, '^{$1}')
+
+  // Clean up multiplication: remove * between terms for display
+  s = s.replace(/(\d)\*([a-zA-Z\\])/g, '$1$2')
+  s = s.replace(/\)\*\(/g, ')(')
+  s = s.replace(/\)\*([a-zA-Z\\])/g, ')$1')
+
+  return s
+}
+
+// ---------------------------------------------------------------------------
 // Expression validation
 // ---------------------------------------------------------------------------
 

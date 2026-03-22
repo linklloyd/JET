@@ -1,18 +1,19 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { ChevronDown, ChevronUp, Keyboard } from 'lucide-react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { MathfieldElement } from 'mathlive'
 
-// Import MathLive (registers <math-field> custom element)
+// Import MathLive (registers <math-field> custom element + static rendering)
 import 'mathlive'
+import { convertLatexToMarkup } from 'mathlive'
 
 // ---------------------------------------------------------------------------
 // Symbol keyboard definitions (Symbolab-style categories)
 // ---------------------------------------------------------------------------
 
 interface KBSymbol {
-  display: string  // What shows on the button (can be LaTeX rendered or text)
-  latex: string    // LaTeX command to insert into mathfield
+  display: string
+  latex: string
 }
 
 interface KBCategory {
@@ -24,11 +25,11 @@ const KEYBOARD_CATEGORIES: KBCategory[] = [
   {
     label: 'Basic',
     symbols: [
+      { display: '□/□', latex: '\\frac{#0}{#0}' },
       { display: '□²', latex: '#0^{2}' },
       { display: 'x□', latex: 'x^{#0}' },
       { display: '√□', latex: '\\sqrt{#0}' },
       { display: 'ⁿ√□', latex: '\\sqrt[#0]{#0}' },
-      { display: '□/□', latex: '\\frac{#0}{#0}' },
       { display: 'logₙ', latex: '\\log_{#0}' },
       { display: 'π', latex: '\\pi' },
       { display: 'θ', latex: '\\theta' },
@@ -94,7 +95,7 @@ const KEYBOARD_CATEGORIES: KBCategory[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// MathInput component
+// MathInput component (with live rendering + always-open keyboard)
 // ---------------------------------------------------------------------------
 
 interface MathInputProps {
@@ -110,7 +111,6 @@ export function MathInput({
   placeholder = 'Enter expression...',
   label,
 }: MathInputProps) {
-  const [keyboardOpen, setKeyboardOpen] = useState(true)
   const [activeCategory, setActiveCategory] = useState(0)
   const mathfieldRef = useRef<MathfieldElement | null>(null)
 
@@ -119,15 +119,12 @@ export function MathInput({
     const mf = mathfieldRef.current
     if (!mf) return
 
-    // Configure mathfield
     mf.smartFence = true
     mf.smartSuperscript = true
-    // Disable MathLive's built-in virtual keyboard — we provide our own
     mf.mathVirtualKeyboardPolicy = 'manual'
 
     const handleInput = () => {
-      const latex = mf.value
-      onChange(latex)
+      onChange(mf.value)
     }
 
     mf.addEventListener('input', handleInput)
@@ -145,103 +142,95 @@ export function MathInput({
   const insertLatex = useCallback((latex: string) => {
     const mf = mathfieldRef.current
     if (!mf) return
-
-    // If latex contains #0 placeholders, use insert which handles them
-    if (latex.includes('#0')) {
-      mf.executeCommand(['insert', latex, { focus: true }])
-    } else {
-      mf.executeCommand(['insert', latex, { focus: true }])
-    }
-
-    // Update parent state
-    requestAnimationFrame(() => {
-      onChange(mf.value)
-    })
+    mf.executeCommand(['insert', latex, { focus: true }])
+    requestAnimationFrame(() => onChange(mf.value))
   }, [onChange])
 
   const category = KEYBOARD_CATEGORIES[activeCategory]
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-0">
       {label && (
-        <label className="text-xs font-medium text-zinc-600">{label}</label>
+        <label className="text-xs font-medium text-zinc-600 block mb-2">{label}</label>
       )}
 
-      {/* MathLive math field */}
-      <div className="relative">
-        <div className="mathlive-container rounded-lg border border-zinc-200 bg-white overflow-hidden focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400 transition-colors">
-          {/* @ts-expect-error - MathLive web component */}
-          <math-field
-            ref={mathfieldRef}
-            placeholder={placeholder}
-            style={{
-              width: '100%',
-              minHeight: '48px',
-              padding: '8px 40px 8px 12px',
-              fontSize: '20px',
-              border: 'none',
-              outline: 'none',
-              background: 'transparent',
-            }}
-          />
-        </div>
-        <button
-          type="button"
-          onClick={() => setKeyboardOpen(!keyboardOpen)}
-          className={cn(
-            'absolute top-3 right-2 p-1.5 rounded transition-colors z-10',
-            keyboardOpen
-              ? 'text-blue-600 bg-blue-50'
-              : 'text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100',
-          )}
-          title="Toggle symbol keyboard"
-        >
-          <Keyboard size={16} />
-        </button>
+      {/* MathLive input field */}
+      <div className="rounded-t-lg border border-zinc-200 bg-white overflow-hidden focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400 transition-colors">
+        {/* @ts-expect-error - MathLive web component */}
+        <math-field
+          ref={mathfieldRef}
+          placeholder={placeholder}
+          style={{
+            width: '100%',
+            minHeight: '56px',
+            padding: '12px 16px',
+            fontSize: '22px',
+            border: 'none',
+            outline: 'none',
+            background: 'transparent',
+          }}
+        />
       </div>
 
-      {/* Symbol keyboard */}
-      {keyboardOpen && (
-        <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
-          {/* Category tabs */}
-          <div className="flex border-b border-zinc-100 overflow-x-auto">
-            {KEYBOARD_CATEGORIES.map((cat, i) => (
+      {/* Always-visible symbol keyboard (attached below input) */}
+      <div className="bg-zinc-50 border border-t-0 border-zinc-200 rounded-b-lg overflow-hidden">
+        {/* Category tabs */}
+        <div className="flex border-b border-zinc-200 overflow-x-auto bg-white">
+          {KEYBOARD_CATEGORIES.map((cat, i) => (
+            <button
+              key={cat.label}
+              type="button"
+              onClick={() => setActiveCategory(i)}
+              className={cn(
+                'px-4 py-2 text-xs font-semibold whitespace-nowrap transition-colors shrink-0',
+                activeCategory === i
+                  ? 'bg-blue-600 text-white'
+                  : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700',
+              )}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Symbol grid */}
+        <div className="p-2.5">
+          <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-12 gap-1.5">
+            {category.symbols.map((sym, i) => (
               <button
-                key={cat.label}
+                key={i}
                 type="button"
-                onClick={() => setActiveCategory(i)}
-                className={cn(
-                  'px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors shrink-0',
-                  activeCategory === i
-                    ? 'bg-blue-600 text-white'
-                    : 'text-zinc-500 hover:bg-zinc-50 hover:text-zinc-700',
-                )}
+                onClick={() => insertLatex(sym.latex)}
+                className="px-2 py-2.5 text-sm rounded-md border border-zinc-200 bg-white hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors text-center font-serif min-h-[40px] flex items-center justify-center shadow-sm"
+                title={sym.latex}
               >
-                {cat.label}
+                {sym.display}
               </button>
             ))}
           </div>
-
-          {/* Symbol grid */}
-          <div className="p-2">
-            <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-1">
-              {category.symbols.map((sym, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => insertLatex(sym.latex)}
-                  className="px-1.5 py-2 text-sm rounded border border-zinc-200 bg-zinc-50 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700 transition-colors text-center font-serif min-h-[36px] flex items-center justify-center"
-                  title={sym.latex}
-                >
-                  {sym.display}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
-      )}
+      </div>
     </div>
   )
+}
+
+// ---------------------------------------------------------------------------
+// MathDisplay — render LaTeX as static formatted math
+// ---------------------------------------------------------------------------
+
+export function MathDisplay({ latex, className }: { latex: string; className?: string }) {
+  const containerRef = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    if (!containerRef.current || !latex) return
+    try {
+      containerRef.current.innerHTML = convertLatexToMarkup(latex)
+    } catch {
+      containerRef.current.textContent = latex
+    }
+  }, [latex])
+
+  return <span ref={containerRef} className={cn('mathlive-display', className)} />
 }
 
 // ---------------------------------------------------------------------------

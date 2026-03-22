@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useParams, Navigate } from 'react-router-dom'
 import { Button } from '../../components/ui/Button'
-import { MathInput, CollapsibleSection } from '../../components/ui/MathInput'
+import { MathInput, MathDisplay, CollapsibleSection } from '../../components/ui/MathInput'
 import { Select } from '../../components/ui/Select'
 import { Calculator, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { solveIntegral } from './solver'
-import { formatExpression, latexToAlgebrite } from '../../lib/math-parser'
+import { latexToAlgebrite, algebriteToLatex } from '../../lib/math-parser'
 import type { IntegralMethod, IntegralResult } from './types'
 
 const VALID_METHODS = ['indefinite', 'definite', 'by-parts', 'substitution', 'partial-fractions'] as const
@@ -152,24 +152,20 @@ function IntegralsView({ method }: { method: IntegralMethod }) {
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-2">Resultado</p>
-                <p className="text-lg font-serif italic text-blue-900">
+                <p className="text-xs font-bold text-blue-600 uppercase tracking-wide mb-3">Resultado</p>
+                <div className="text-xl text-blue-900">
                   {method === 'definite' && result.definiteValue ? (
-                    <>
-                      <span className="text-sm text-blue-600 mr-2">∫</span>
-                      {formatExpression(result.antiderivative)}
-                      <span className="text-blue-400 mx-2">=</span>
+                    <span className="flex items-center gap-3">
+                      <MathDisplay latex={algebriteToLatex(result.antiderivative)} />
+                      <span className="text-blue-400">=</span>
                       <span className="font-bold">{result.definiteValue}</span>
-                    </>
+                    </span>
                   ) : (
-                    <>
-                      <span className="text-sm text-blue-600 mr-2">∫</span>
-                      {formatExpression(result.antiderivative)}
-                    </>
+                    <MathDisplay latex={algebriteToLatex(result.antiderivative)} />
                   )}
-                </p>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 {result.verified ? (
                   <span className="flex items-center gap-1 text-xs text-green-600">
                     <CheckCircle2 size={13} /> Verificado
@@ -185,15 +181,15 @@ function IntegralsView({ method }: { method: IntegralMethod }) {
 
           {/* Steps */}
           <CollapsibleSection title="Pasos" defaultOpen={true}>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {result.steps.filter((s) => s.label !== 'Verificación').map((step, i) => (
-                <div key={i} className="space-y-0.5">
+                <div key={i} className="space-y-1">
                   <p className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
                     {step.label}
                   </p>
-                  <p className="text-sm font-mono text-zinc-800 bg-zinc-50 rounded px-3 py-2 whitespace-pre-wrap">
-                    {step.expression}
-                  </p>
+                  <div className="text-base text-zinc-800 bg-zinc-50 rounded-lg px-4 py-3 overflow-x-auto">
+                    <MathDisplay latex={algebriteToLatex(step.expression)} />
+                  </div>
                   <p className="text-xs text-zinc-500">{step.description}</p>
                 </div>
               ))}
@@ -202,12 +198,12 @@ function IntegralsView({ method }: { method: IntegralMethod }) {
 
           {/* Verification */}
           <CollapsibleSection title="Verificación" defaultOpen={false}>
-            <div className="space-y-2">
+            <div className="space-y-3">
               {result.steps.filter((s) => s.label === 'Verificación').map((step, i) => (
-                <div key={i} className="space-y-0.5">
-                  <p className="text-sm font-mono text-zinc-800 bg-zinc-50 rounded px-3 py-2">
-                    {step.expression}
-                  </p>
+                <div key={i} className="space-y-1">
+                  <div className="text-base text-zinc-800 bg-zinc-50 rounded-lg px-4 py-3 overflow-x-auto">
+                    <MathDisplay latex={algebriteToLatex(step.expression)} />
+                  </div>
                   <p className="text-xs text-zinc-500">{step.description}</p>
                 </div>
               ))}
