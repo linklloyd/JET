@@ -40,6 +40,10 @@ import {
   GripVertical,
   Eye,
   Star,
+  FunctionSquare,
+  Scissors,
+  Replace,
+  Split,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { HistoryPanel } from '../ui/HistoryPanel'
@@ -90,6 +94,18 @@ const defaultSections: Section[] = [
           { path: '/matrices/cofactors', label: 'Cofactors', icon: GridIcon },
           { path: '/matrices/systems', label: 'Systems', icon: Variable },
           { path: '/matrices/visualizer', label: 'Visualizer', icon: Eye },
+        ],
+      },
+      {
+        path: '/integrals',
+        label: 'Integrals',
+        icon: FunctionSquare,
+        subtabs: [
+          { path: '/integrals/indefinite', label: 'Indefinite', icon: FunctionSquare },
+          { path: '/integrals/definite', label: 'Definite', icon: Hash },
+          { path: '/integrals/by-parts', label: 'By Parts', icon: Scissors },
+          { path: '/integrals/substitution', label: 'Substitution', icon: Replace },
+          { path: '/integrals/partial-fractions', label: 'Partial Fractions', icon: Split },
         ],
       },
     ],

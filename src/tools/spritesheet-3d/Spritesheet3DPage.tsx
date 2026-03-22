@@ -553,7 +553,7 @@ export function Spritesheet3DPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-[1fr_320px] gap-6">
+      <div className="grid grid-cols-[1fr_280px] gap-5">
         {/* 3D Viewport */}
         <div className="space-y-3">
           <div className="bg-white border border-zinc-200 rounded-lg p-4">
@@ -706,69 +706,82 @@ export function Spritesheet3DPage() {
         </div>
 
         {/* Controls */}
-        <div className="space-y-4">
-          {/* Model input card */}
-          <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
-            <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Model</p>
+        <div className="space-y-3">
+          {/* Export — always on top */}
+          <div className="space-y-2">
+            {capturing && (
+              <div className="space-y-1">
+                <ProgressBar value={captureProgress} />
+                <p className="text-[11px] text-zinc-500 text-center">Capturing... {captureProgress}%</p>
+              </div>
+            )}
+
+            <Button
+              onClick={handleCapture}
+              disabled={!modelLoaded || capturing}
+              className="w-full"
+            >
+              {capturing ? (
+                <><Loader2 size={16} className="animate-spin" /> Capturing...</>
+              ) : (
+                <><Camera size={16} /> Capture Spritesheet</>
+              )}
+            </Button>
+            <p className="text-[11px] text-zinc-400 text-center">
+              {currentPreset.angles.length} angles × {frameCount} frames · {frameCount * captureSize}×{currentPreset.angles.length * captureSize}px
+            </p>
+          </div>
+
+          {/* Model & Texture */}
+          <div className="border border-zinc-200 rounded-lg p-3 space-y-2">
+            <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Model & Texture</p>
             <button
               onClick={() => modelInputRef.current?.click()}
               className={cn(
-                'w-full flex items-center gap-3 px-3 py-3 rounded-lg border-2 border-dashed transition-colors text-left',
+                'w-full flex items-center gap-2 px-2.5 py-2 rounded-md border border-dashed transition-colors text-left',
                 modelLoaded
-                  ? 'border-zinc-200 hover:border-zinc-300 bg-zinc-50'
-                  : 'border-blue-300 hover:border-blue-400 bg-blue-50/50'
+                  ? 'border-zinc-200 hover:border-zinc-300'
+                  : 'border-blue-300 hover:border-blue-400 bg-blue-50/30'
               )}
             >
-              <FolderOpen size={18} className={modelLoaded ? 'text-zinc-400' : 'text-blue-500'} />
-              <div className="min-w-0 flex-1">
-                <p className={cn('text-xs font-medium', modelLoaded ? 'text-zinc-600' : 'text-blue-700')}>
-                  {modelLoaded ? 'Replace model' : 'Load 3D model'}
-                </p>
-                <p className="text-[11px] text-zinc-400 truncate">FBX, GLB, GLTF</p>
-              </div>
+              <FolderOpen size={14} className={modelLoaded ? 'text-zinc-400' : 'text-blue-500'} />
+              <span className={cn('text-xs', modelLoaded ? 'text-zinc-500' : 'text-blue-600')}>
+                {modelLoaded ? 'Replace model' : 'Load model'} <span className="text-zinc-400">· FBX, GLB, GLTF</span>
+              </span>
             </button>
-          </div>
-
-          {/* Texture input card */}
-          <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
-            <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Texture</p>
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <button
                 onClick={() => textureInputRef.current?.click()}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex-1',
+                  'flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors flex-1',
                   modelLoaded
                     ? 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                    : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
+                    : 'bg-zinc-50 text-zinc-300 cursor-not-allowed'
                 )}
                 disabled={!modelLoaded}
               >
-                <ImagePlus size={13} /> Apply Texture
+                <ImagePlus size={11} /> Apply Texture
               </button>
               <button
                 onClick={handleToggleFlipY}
                 className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+                  'flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors',
                   modelLoaded
                     ? 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
-                    : 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
+                    : 'bg-zinc-50 text-zinc-300 cursor-not-allowed'
                 )}
                 disabled={!modelLoaded}
                 title={`Toggle UV flip (flipY=${textureFlipY})`}
               >
-                <FlipVertical size={13} /> Flip UV
+                <FlipVertical size={11} /> Flip UV
               </button>
             </div>
-            <p className="text-[10px] text-zinc-400">
-              {modelLoaded
-                ? 'Upload a texture if the model lost its textures. You can also drag images onto the viewport.'
-                : 'Load a model first to apply textures.'}
-            </p>
           </div>
 
+          {/* Animation */}
           {animations.length > 0 && (
-            <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
-              <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Animation</p>
+            <div className="border border-zinc-200 rounded-lg p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Animation</p>
               <Select
                 label="Clip"
                 options={animations.map((clip, i) => ({
@@ -781,8 +794,9 @@ export function Spritesheet3DPage() {
             </div>
           )}
 
-          <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
-            <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Capture Settings</p>
+          {/* Capture Settings */}
+          <div className="border border-zinc-200 rounded-lg p-3 space-y-2">
+            <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Capture Settings</p>
 
             <Select
               label="Preset"
@@ -798,9 +812,8 @@ export function Spritesheet3DPage() {
               }}
             />
 
-            <p className="text-[11px] text-zinc-500">{currentPreset.description}</p>
-            <p className="text-[11px] text-zinc-400">
-              Angles: {currentPreset.angles.map((a) => directionLabels[a] || `${a}°`).join(', ')}
+            <p className="text-[10px] text-zinc-400 leading-snug">
+              {currentPreset.angles.map((a) => directionLabels[a] || `${a}°`).join(' · ')}
             </p>
 
             {presetKey === 'custom' && (
@@ -813,21 +826,21 @@ export function Spritesheet3DPage() {
             )}
 
             <Slider
-              label="Frames per angle"
+              label="Frames"
               displayValue={String(frameCount)}
               min={1} max={32} value={frameCount}
               onChange={(e) => setFrameCount(Number((e.target as HTMLInputElement).value))}
             />
 
             <Slider
-              label="Frame size"
+              label="Size"
               displayValue={`${captureSize}px`}
               min={32} max={512} step={32} value={captureSize}
               onChange={(e) => setCaptureSize(Number((e.target as HTMLInputElement).value))}
             />
 
             <Slider
-              label="Camera distance"
+              label="Distance"
               displayValue={String(cameraDistance)}
               min={1} max={10} step={0.5} value={cameraDistance}
               onChange={(e) => setCameraDistance(Number((e.target as HTMLInputElement).value))}
@@ -843,35 +856,6 @@ export function Spritesheet3DPage() {
               value={bgColor}
               onChange={(e) => setBgColor(e.target.value as typeof bgColor)}
             />
-          </div>
-
-          <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
-            <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Export</p>
-            <p className="text-xs text-zinc-500">
-              Output: {currentPreset.angles.length * frameCount} frames
-              ({currentPreset.angles.length} angles × {frameCount} frames)
-              <br />
-              Sheet: {frameCount * captureSize} × {currentPreset.angles.length * captureSize}px
-            </p>
-
-            {capturing && (
-              <div className="space-y-1">
-                <ProgressBar value={captureProgress} />
-                <p className="text-xs text-zinc-500">Capturing... {captureProgress}%</p>
-              </div>
-            )}
-
-            <Button
-              onClick={handleCapture}
-              disabled={!modelLoaded || capturing}
-              className="w-full"
-            >
-              {capturing ? (
-                <><Loader2 size={16} className="animate-spin" /> Capturing...</>
-              ) : (
-                <><Camera size={16} /> Capture Spritesheet</>
-              )}
-            </Button>
           </div>
         </div>
       </div>

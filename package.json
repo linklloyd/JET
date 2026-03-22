@@ -13,6 +13,7 @@
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
     "@tailwindcss/vite": "^4.2.2",
+    "algebrite": "^1.4.0",
     "clsx": "^2.1.1",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.1",

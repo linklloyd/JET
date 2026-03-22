@@ -25,6 +25,7 @@ import {
   MapPinned,
   Music,
   ArrowRight,
+  FunctionSquare,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
@@ -44,6 +45,7 @@ const sections: { title: string; description: string; tools: ToolCard[] }[] = [
     tools: [
       { path: '/probability/binomial', label: 'Probability', description: 'Binomial, Poisson, Hypergeometric & custom distributions', icon: Dice5, color: 'slate' },
       { path: '/matrices/multiplication', label: 'Matrices', description: 'Multiply, reduce, invert, and solve matrix systems', icon: Table2, color: 'zinc' },
+      { path: '/integrals/indefinite', label: 'Integrals', description: 'Step-by-step integration with multiple techniques', icon: FunctionSquare, color: 'violet' },
     ],
   },
   {
