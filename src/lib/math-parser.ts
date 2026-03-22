@@ -350,8 +350,10 @@ export function algebriteToLatex(expr: string): string {
   s = s.replace(/\(([^()]+)\)\/(\d+)/g, '\\frac{$1}{$2}')
   // After ^ exponent: x^{n+1}/(n+1) — standalone /(expr) as division
   s = s.replace(/\s*\/\s*\(([^()]+)\)/g, '\\cdot \\frac{1}{$1}')
-  // Simple numeric fractions: 1/3, 3/2, etc.
-  s = s.replace(/(?<![a-zA-Z^{])(\d+)\/(\d+)(?![a-zA-Z}])/g, '\\frac{$1}{$2}')
+  // Simple numeric fractions: 1/3, 3/2, 2/3x^3, etc.
+  // Allow letter or ^ to follow (e.g. 2/3x means (2/3)*x)
+  s = s.replace(/(?<![a-zA-Z^{])(\d+)\/(\d+)(?=[a-zA-Z\\])/g, '\\frac{$1}{$2}')
+  s = s.replace(/(?<![a-zA-Z^{])(\d+)\/(\d+)(?![a-zA-Z0-9}])/g, '\\frac{$1}{$2}')
 
   // exp(x) → e^{x}  (Algebrite outputs exp() for exponentials)
   // Handle with or without word boundary (e.g. "2exp(x)" has no \b between digit and exp)

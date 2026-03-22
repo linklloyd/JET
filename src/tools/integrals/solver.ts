@@ -26,7 +26,7 @@ const FORMULAS: Formula[] = [
   { id: 1,  name: 'Regla de la suma',         formula: '∫[f(u) ± g(u)] du = ∫f(u) du ± ∫g(u) du',  description: 'Se integra cada término por separado' },
   { id: 2,  name: 'Múltiplo constante',        formula: '∫k du = k·∫du = k·u + C',                   description: 'Se saca la constante fuera de la integral' },
   { id: 3,  name: 'Integral de du',            formula: '∫du = u + C',                                description: 'La integral de du es simplemente u + C' },
-  { id: 4,  name: 'Regla de la potencia',      formula: '∫u^n du = u^(n+1)/(n+1) + C  (n ≠ -1)',     description: 'Se aplica la regla de la potencia' },
+  { id: 4,  name: 'Regla de la potencia',      formula: '∫ u^n du = (u^(n+1))/(n+1) + C',              description: 'Se aplica la regla de la potencia (n ≠ -1)' },
   { id: 5,  name: 'Integral de du/u',          formula: '∫du/u = ln|u| + C',                          description: 'La integral de 1/u es el logaritmo natural de |u|' },
   { id: 6,  name: 'Integral de a^u',           formula: '∫a^u du = a^u / ln(a) + C',                  description: 'Se aplica la fórmula para exponenciales con base constante a' },
   { id: 7,  name: 'Integral de e^u',           formula: '∫e^u du = e^u + C',                          description: 'La integral de e^u es e^u' },
@@ -395,7 +395,7 @@ function solvePowerRule(expr: string, variable: string, steps: IntegralStep[]): 
         })
         steps.push({
           label: `Integrar: ${formatExpression(term)}`,
-          expression: `(${coeff}) · ${variable}^(${nPlus1}) / (${nPlus1}) = ${formatExpression(termIntegral)}`,
+          expression: `(${coeff}) · (${variable}^(${nPlus1}))/(${nPlus1}) = ${formatExpression(termIntegral)}`,
           description: `Sustituir n=${n} en la Fórmula 4: ∫u^n du = u^(n+1)/(n+1)`,
           value: formatExpression(termIntegral),
         })
