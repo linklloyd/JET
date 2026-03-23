@@ -304,6 +304,86 @@ export function detectVariable(latex: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Fraction converter with balanced parenthesis support
+// ---------------------------------------------------------------------------
+
+/** Extract the content of a balanced parenthesized group starting at position i (which should be '(') */
+function extractBalancedParen(s: string, start: number): { content: string; end: number } | null {
+  if (s[start] !== '(') return null
+  let depth = 0
+  for (let i = start; i < s.length; i++) {
+    if (s[i] === '(') depth++
+    else if (s[i] === ')') {
+      depth--
+      if (depth === 0) return { content: s.slice(start + 1, i), end: i }
+    }
+  }
+  return null
+}
+
+/** Convert division expressions to \frac{}{} with balanced paren support */
+function convertFractions(s: string): string {
+  // Process from left to right, looking for '/' that separates expressions
+  let result = ''
+  let i = 0
+
+  while (i < s.length) {
+    if (s[i] === '/' && i > 0) {
+      // Check what's AFTER the /
+      const afterSlash = i + 1
+      if (afterSlash < s.length && s[afterSlash] === '(') {
+        // Extract balanced denominator: /(...)
+        const denom = extractBalancedParen(s, afterSlash)
+        if (denom) {
+          // Find numerator: look backwards for (expr) or a simple term
+          // Check if result ends with a balanced paren group
+          const trimmed = result.trimEnd()
+          if (trimmed.endsWith(')')) {
+            // Find matching opening paren
+            let depth = 0
+            let j = trimmed.length - 1
+            for (; j >= 0; j--) {
+              if (trimmed[j] === ')') depth++
+              else if (trimmed[j] === '(') {
+                depth--
+                if (depth === 0) break
+              }
+            }
+            if (j >= 0) {
+              const numContent = trimmed.slice(j + 1, trimmed.length - 1)
+              result = trimmed.slice(0, j) + `\\frac{${numContent}}{${denom.content}}`
+            } else {
+              result += `\\cdot \\frac{1}{${denom.content}}`
+            }
+          } else if (/(-?\d+)$/.test(trimmed)) {
+            // Numerator is a number: 2/(...), -3/(...)
+            const numMatch = trimmed.match(/(-?\d+)$/)!
+            result = trimmed.slice(0, trimmed.length - numMatch[1].length) + `\\frac{${numMatch[1]}}{${denom.content}}`
+          } else {
+            // No clear numerator, use ·1/denom
+            result += `\\cdot \\frac{1}{${denom.content}}`
+          }
+          i = denom.end + 1
+          continue
+        }
+      }
+      // Simple number/number: check a/b pattern
+      const numBefore = result.match(/(\d+)$/)
+      const numAfter = s.slice(afterSlash).match(/^(\d+)/)
+      if (numBefore && numAfter) {
+        result = result.slice(0, result.length - numBefore[1].length) + `\\frac{${numBefore[1]}}{${numAfter[1]}}`
+        i = afterSlash + numAfter[1].length
+        continue
+      }
+    }
+    result += s[i]
+    i++
+  }
+
+  return result
+}
+
+// ---------------------------------------------------------------------------
 // Algebrite → LaTeX converter (for rendering results with MathLive)
 // ---------------------------------------------------------------------------
 
@@ -342,14 +422,8 @@ export function algebriteToLatex(expr: string): string {
   s = s.replace(/\^(\d+)/g, '^{$1}')          // x^2 → x^{2}
 
   // --- Fractions (after exponents are consumed) ---
-  // Nested parens: (a)/(b) patterns
-  s = s.replace(/\(([^()]+)\)\/\(([^()]+)\)/g, '\\frac{$1}{$2}')
-  // Number or expression / (expr): -2/(x+1), 1/(x+1)
-  s = s.replace(/(-?\d+)\/\(([^()]+)\)/g, '\\frac{$1}{$2}')
-  // (expr)/number: (x+1)/3
-  s = s.replace(/\(([^()]+)\)\/(\d+)/g, '\\frac{$1}{$2}')
-  // After ^ exponent: x^{n+1}/(n+1) — standalone /(expr) as division
-  s = s.replace(/\s*\/\s*\(([^()]+)\)/g, '\\cdot \\frac{1}{$1}')
+  // Use a function to extract balanced-paren groups for fraction conversion
+  s = convertFractions(s)
   // Simple numeric fractions: 1/3, 3/2, 2/3x^3, etc.
   // Allow letter or ^ to follow (e.g. 2/3x means (2/3)*x)
   s = s.replace(/(?<![a-zA-Z^{])(\d+)\/(\d+)(?=[a-zA-Z\\])/g, '\\frac{$1}{$2}')
