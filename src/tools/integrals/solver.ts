@@ -195,8 +195,10 @@ function isPureExponential(expr: string, variable: string): boolean {
   if (/^exp\([^)]*\)$/.test(s) && s.includes(variable)) return true
   // e^(anything): e^(2x), e^x
   if (/^e\^/.test(s) && s.includes(variable)) return true
-  // a^(anything with variable): 2^(2x), 3^x, 5^(x+1)
-  if (/^\d+\^/.test(s) && s.includes(variable)) return true
+  // constant^(anything with variable): 2^(2x), a^(4x), 5^(x+1)
+  // Base must be a number or a letter that is NOT the integration variable
+  const baseMatch = s.match(/^([a-zA-Z]|\d+)\^/)
+  if (baseMatch && baseMatch[1] !== variable && baseMatch[1] !== 'e' && s.includes(variable)) return true
   return false
 }
 
@@ -264,8 +266,9 @@ function detectFormulaForTerm(
   }
 
   // Formula 6: ∫a^u du = a^u/ln(a) + C (constant base, variable exponent)
-  const baseExpMatch = t.match(/^(\d+)\^(.+)$/)
-  if (baseExpMatch && baseExpMatch[2].includes(v)) {
+  // Matches both numeric bases (2^x, 3^(2x)) and letter constants (a^(4x), b^x)
+  const baseExpMatch = t.match(/^([a-zA-Z]|\d+)\^(.+)$/)
+  if (baseExpMatch && baseExpMatch[1] !== v && baseExpMatch[1] !== 'e' && baseExpMatch[2].includes(v)) {
     return { formulaId: 6, substitutions: { a: baseExpMatch[1] } }
   }
 
@@ -490,8 +493,9 @@ function solveWithFormulas(expr: string, variable: string, steps: IntegralStep[]
  *  For a^(kx+b): u-sub with u=kx+b, du=k dx → a^(kx+b) / (k·ln(a))
  */
 function solveConstantBaseExponential(expr: string, variable: string, steps: IntegralStep[]): string | null {
-  // Match patterns: a^(kx), a^(k*x), a^(kx+b), a^x etc.
-  const match = expr.match(/^(\d+)\^[\(]?(.+?)[\)]?$/)
+  // Match patterns: a^(kx), 2^(k*x), a^(kx+b), a^x etc.
+  // Supports both numeric bases (2, 3, 5) and letter constants (a, b, c)
+  const match = expr.match(/^([a-zA-Z]|\d+)\^[\(]?(.+?)[\)]?$/)
   if (!match) return null
 
   const base = match[1]
