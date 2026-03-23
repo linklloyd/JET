@@ -392,9 +392,8 @@ export function Spritesheet3DPage() {
     setCapturedImage(null)
     setCapturedBlob(null)
 
-    const preset = presets[presetKey]
-    const angles = preset.angles
-    const elev = presetKey === 'custom' ? elevation : preset.elevation
+    const angles = currentPreset.angles
+    const elev = presetKey === 'custom' ? elevation : currentPreset.elevation
     const clip = animations[selectedAnim]
     const totalFrames = angles.length * frameCount
     let captured = 0
@@ -414,7 +413,7 @@ export function Spritesheet3DPage() {
     else captureRenderer.setClearColor(0x0000ff, 1)
 
     let captureCamera: THREE.Camera
-    if (preset.useOrthographic) {
+    if (currentPreset.useOrthographic) {
       const frustumSize = cameraDistance
       captureCamera = new THREE.OrthographicCamera(
         -frustumSize / 2, frustumSize / 2,
