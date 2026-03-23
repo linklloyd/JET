@@ -153,6 +153,9 @@ export function FormatConverterPage() {
 
   const loadFFmpeg = useCallback(async () => {
     if (ffmpegRef.current) return ffmpegRef.current
+    if (!crossOriginIsolated) {
+      throw new Error('FFmpeg requires Cross-Origin Isolation headers (COOP/COEP). This may not work on some hosting providers.')
+    }
     const ffmpeg = new FFmpeg()
     ffmpeg.on('progress', ({ progress: p }) => {
       setProgress(`Converting... ${Math.round(p)}%`)
