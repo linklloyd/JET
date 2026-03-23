@@ -25,7 +25,7 @@ const KEYBOARD_CATEGORIES: KBCategory[] = [
     label: 'Basic',
     symbols: [
       { display: '□/□', latex: '\\frac{#0}{#0}' },
-      { display: '□²', latex: '#0^{2}' },
+      { display: '□²', latex: '^{2}' },
       { display: 'x□', latex: 'x^{#0}' },
       { display: '√□', latex: '\\sqrt{#0}' },
       { display: 'ⁿ√□', latex: '\\sqrt[#0]{#0}' },

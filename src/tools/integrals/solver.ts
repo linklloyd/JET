@@ -172,6 +172,10 @@ function detectTechnique(expr: string, variable: string, method: IntegralMethod)
   // Check if it's a polynomial (uses sum rule + power rule + formula 5 for 1/x)
   if (isPolynomial(expr, variable)) return 'power-rule'
 
+  // Check for pure exponential forms: a^(f(x)), e^(f(x)), exp(f(x))
+  // These should use direct formula, not by-parts
+  if (isPureExponential(expr, variable)) return 'direct'
+
   // Check for product of different classes → by parts
   if (isProductOfClasses(expr, variable)) return 'by-parts'
 
@@ -183,6 +187,17 @@ function detectTechnique(expr: string, variable: string, method: IntegralMethod)
 
   // Everything else: direct formula matching
   return 'direct'
+}
+
+function isPureExponential(expr: string, variable: string): boolean {
+  const s = expr.replace(/\s/g, '')
+  // exp(anything with variable): exp(2*x), exp(x+1), exp(3x)
+  if (/^exp\([^)]*\)$/.test(s) && s.includes(variable)) return true
+  // e^(anything): e^(2x), e^x
+  if (/^e\^/.test(s) && s.includes(variable)) return true
+  // a^(anything with variable): 2^(2x), 3^x, 5^(x+1)
+  if (/^\d+\^/.test(s) && s.includes(variable)) return true
+  return false
 }
 
 function isPolynomial(expr: string, variable: string): boolean {
@@ -433,18 +448,133 @@ function solveWithFormulas(expr: string, variable: string, steps: IntegralStep[]
     })
   }
 
-  const result = cas.integral(expr, variable)
-  const simplified = cas.simplify(result)
+  // Try Algebrite first
+  try {
+    const result = cas.integral(expr, variable)
+    const simplified = cas.simplify(result)
+
+    steps.push({
+      label: 'Integración directa',
+      expression: `∫(${formatExpression(expr)}) d${variable} = ${formatExpression(simplified)}`,
+      description: detected
+        ? `Se aplica la Fórmula ${detected.formulaId} directamente`
+        : 'Se aplica la fórmula de integración correspondiente',
+    })
+
+    return simplified
+  } catch {
+    // Algebrite failed — try manual formula application
+  }
+
+  // Manual: Formula 6 — ∫a^(ku) du = a^(ku) / (k·ln(a)) + C
+  if (detected?.formulaId === 6) {
+    const manualResult = solveConstantBaseExponential(expr, variable, steps)
+    if (manualResult) return manualResult
+  }
+
+  // Manual: Formula 7 — ∫e^(ku) du = e^(ku) / k + C
+  if (detected?.formulaId === 7) {
+    const manualResult = solveExpExponential(expr, variable, steps)
+    if (manualResult) return manualResult
+  }
+
+  throw new Error('No se pudo resolver la integral')
+}
+
+// ---------------------------------------------------------------------------
+// Manual formula solvers (when Algebrite can't handle it)
+// ---------------------------------------------------------------------------
+
+/** Solve ∫a^(f(x)) dx where a is a constant base
+ *  For a^(kx): result = a^(kx) / (k·ln(a))
+ *  For a^(kx+b): u-sub with u=kx+b, du=k dx → a^(kx+b) / (k·ln(a))
+ */
+function solveConstantBaseExponential(expr: string, variable: string, steps: IntegralStep[]): string | null {
+  // Match patterns: a^(kx), a^(k*x), a^(kx+b), a^x etc.
+  const match = expr.match(/^(\d+)\^[\(]?(.+?)[\)]?$/)
+  if (!match) return null
+
+  const base = match[1]
+  const exponent = match[2]
+
+  // Extract coefficient of variable in the exponent
+  // For "2*x" → k=2, for "x" → k=1, for "2*x+1" → k=2
+  let k = '1'
+  try {
+    k = cas.run(`coeff(${exponent}, ${variable}, 1)`)
+    if (k === '0' || !k) k = '1'
+  } catch {
+    k = '1'
+  }
+
+  const resultExpr = k === '1'
+    ? `${base}^(${exponent})/log(${base})`
+    : `${base}^(${exponent})/(${k}*log(${base}))`
 
   steps.push({
-    label: 'Integración directa',
-    expression: `∫(${formatExpression(expr)}) d${variable} = ${formatExpression(simplified)}`,
-    description: detected
-      ? `Se aplica la Fórmula ${detected.formulaId} directamente`
-      : 'Se aplica la fórmula de integración correspondiente',
+    label: 'Sustitución',
+    expression: `u = ${formatExpression(exponent)}, du = ${k} d${variable}`,
+    description: `Se identifica u = ${formatExpression(exponent)} en el exponente`,
   })
 
-  return simplified
+  steps.push({
+    label: 'Aplicar fórmula',
+    expression: k === '1'
+      ? `${base}^(${formatExpression(exponent)}) / ln(${base})`
+      : `${base}^(${formatExpression(exponent)}) / (${k} · ln(${base}))`,
+    description: `Se aplica ∫a^u du = a^u / ln(a), con factor 1/${k} por la sustitución`,
+  })
+
+  try {
+    return cas.simplify(resultExpr)
+  } catch {
+    return resultExpr
+  }
+}
+
+/** Solve ∫e^(f(x)) dx where f(x) is linear
+ *  For e^(kx): result = e^(kx) / k
+ */
+function solveExpExponential(expr: string, variable: string, steps: IntegralStep[]): string | null {
+  // Match exp(...) or e^(...)
+  const match = expr.match(/^exp\((.+)\)$/) || expr.match(/^e\^[\(]?(.+?)[\)]?$/)
+  if (!match) return null
+
+  const exponent = match[1]
+
+  let k = '1'
+  try {
+    k = cas.run(`coeff(${exponent}, ${variable}, 1)`)
+    if (k === '0' || !k) k = '1'
+  } catch {
+    k = '1'
+  }
+
+  const resultExpr = k === '1'
+    ? `exp(${exponent})`
+    : `exp(${exponent})/(${k})`
+
+  steps.push({
+    label: 'Sustitución',
+    expression: `u = ${formatExpression(exponent)}, du = ${k} d${variable}`,
+    description: `Se identifica u = ${formatExpression(exponent)} en el exponente`,
+  })
+
+  steps.push({
+    label: 'Aplicar fórmula',
+    expression: k === '1'
+      ? `e^(${formatExpression(exponent)})`
+      : `e^(${formatExpression(exponent)}) / ${k}`,
+    description: k === '1'
+      ? 'Se aplica ∫e^u du = e^u directamente'
+      : `Se aplica ∫e^u du = e^u, con factor 1/${k} por la sustitución`,
+  })
+
+  try {
+    return cas.simplify(resultExpr)
+  } catch {
+    return resultExpr
+  }
 }
 
 // ---------------------------------------------------------------------------
