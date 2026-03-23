@@ -84,6 +84,22 @@ export function MathInput({
     mf.mathVirtualKeyboardPolicy = 'manual'
     mf.menuItems = []  // disable the ≡ menu button
 
+    // On mobile/touch devices, prevent the native keyboard from covering our custom keyboard
+    // by setting the math-field to read-only mode for the underlying input
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+      requestAnimationFrame(() => {
+        const shadow = mf.shadowRoot
+        if (shadow) {
+          // Prevent native keyboard from showing on focus
+          const textarea = shadow.querySelector('textarea')
+          if (textarea) {
+            textarea.setAttribute('inputmode', 'none')
+            textarea.setAttribute('readonly', 'readonly')
+          }
+        }
+      })
+    }
+
     // Hide built-in virtual keyboard toggle and menu from shadow DOM
     requestAnimationFrame(() => {
       const shadow = mf.shadowRoot
@@ -176,6 +192,39 @@ export function MathInput({
                 title={sym.latex}
               >
                 {sym.display}
+              </button>
+            ))}
+          </div>
+
+          {/* Number/variable row for mobile (no native keyboard) */}
+          <div className="grid grid-cols-8 sm:grid-cols-12 gap-1 mt-2 lg:hidden">
+            {['1','2','3','4','5','6','7','8','9','0','x','y'].map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => insertLatex(key)}
+                className="py-2 text-sm rounded-md border border-zinc-100 bg-white hover:bg-zinc-100 transition-colors text-center font-mono"
+              >
+                {key}
+              </button>
+            ))}
+            {['+','-','·','=','(',')','←'].map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => {
+                  if (key === '←') {
+                    mathfieldRef.current?.executeCommand('deleteBackward')
+                    requestAnimationFrame(() => onChange(mathfieldRef.current?.value || ''))
+                  } else if (key === '·') {
+                    insertLatex('\\cdot')
+                  } else {
+                    insertLatex(key)
+                  }
+                }}
+                className="py-2 text-sm rounded-md border border-zinc-100 bg-white hover:bg-zinc-100 transition-colors text-center font-mono"
+              >
+                {key}
               </button>
             ))}
           </div>
