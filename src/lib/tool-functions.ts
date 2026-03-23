@@ -542,6 +542,8 @@ const PRESET_ANGLES: Record<string, { angles: number[]; elevation: number; useOr
   rpg4: { angles: [0, 90, 180, 270], elevation: 55, useOrtho: false },
   platformer: { angles: [90, 270], elevation: 0, useOrtho: false },
   isometric: { angles: [45, 135, 225, 315], elevation: 35.264, useOrtho: true },
+  custom8: { angles: [0, 45, 90, 135, 180, 225, 270, 315], elevation: 45, useOrtho: false },
+  custom4: { angles: [0, 90, 180, 270], elevation: 45, useOrtho: false },
 }
 
 export async function capture3DSpritesheet(
@@ -550,6 +552,7 @@ export async function capture3DSpritesheet(
     modelFile?: File
     textureFile?: File
     preset?: string
+    elevation?: number
     frameCount?: number
     captureSize?: number
     cameraDistance?: number
@@ -565,8 +568,31 @@ export async function capture3DSpritesheet(
   const inputBlob = Array.isArray(input) ? input[0] : input
   const hasInputTexture = inputBlob && inputBlob.size > 0
 
-  const presetKey = config.preset || 'rpg8'
-  const presetDef = PRESET_ANGLES[presetKey] || PRESET_ANGLES.rpg8
+  let presetKey = config.preset || 'rpg8'
+
+  // Resolve saved custom presets (saved:<name>) from localStorage
+  let presetDef: { angles: number[]; elevation: number; useOrtho: boolean }
+  if (presetKey.startsWith('saved:')) {
+    const { loadSavedPresets, ANGLES_4, ANGLES_8 } = await import('../tools/spritesheet-3d/presets')
+    const name = presetKey.slice(6)
+    const saved = loadSavedPresets().find((p) => p.name === name)
+    if (saved) {
+      presetDef = {
+        angles: saved.directionCount === 4 ? ANGLES_4 : ANGLES_8,
+        elevation: saved.elevation,
+        useOrtho: false,
+      }
+    } else {
+      presetDef = PRESET_ANGLES.rpg8
+    }
+  } else {
+    presetDef = PRESET_ANGLES[presetKey] || PRESET_ANGLES.rpg8
+  }
+
+  // Override elevation for custom presets if provided
+  if ((presetKey === 'custom4' || presetKey === 'custom8' || presetKey.startsWith('saved:')) && config.elevation != null) {
+    presetDef = { ...presetDef, elevation: config.elevation }
+  }
   const frameCount = config.frameCount || 8
   const captureSize = config.captureSize || 128
   const camDist = config.cameraDistance || 3

@@ -11,6 +11,7 @@ import { downloadBlob } from '../../lib/utils'
 import { PRESET_PIPELINES } from './presets'
 import { TOOL_DEFS, getCompatibleSteps, getDefaultConfig } from './tool-registry'
 import { executePipeline } from './pipeline-engine'
+import { loadSavedPresets as load3DPresets } from '../spritesheet-3d/presets'
 import type { PipelineStep, ToolStepType, SavedPipeline } from './types'
 import JSZip from 'jszip'
 
@@ -385,7 +386,13 @@ export function PipelinePage() {
 
                       {/* Config fields */}
                       <div className="flex flex-wrap gap-3">
-                        {def.configFields.map((field) => (
+                        {def.configFields.map((field) => {
+                          // Hide elevation field unless a custom/saved preset is selected
+                          if (field.key === 'elevation' && step.type === '3d-spritesheet') {
+                            const presetVal = step.config.preset as string || 'rpg8'
+                            if (!presetVal.startsWith('custom') && !presetVal.startsWith('saved:')) return null
+                          }
+                          return (
                           <label key={field.key} className="space-y-0.5">
                             <span className="text-[11px] font-medium text-zinc-500">{field.label}</span>
                             {field.type === 'number' && (
@@ -408,6 +415,12 @@ export function PipelinePage() {
                                 {field.options?.map((o) => (
                                   <option key={o.value} value={o.value}>{o.label}</option>
                                 ))}
+                                {/* Inject saved 3D presets */}
+                                {step.type === '3d-spritesheet' && field.key === 'preset' &&
+                                  load3DPresets().map((sp) => (
+                                    <option key={`saved:${sp.name}`} value={`saved:${sp.name}`}>★ {sp.name}</option>
+                                  ))
+                                }
                               </select>
                             )}
                             {field.type === 'checkbox' && (
@@ -456,7 +469,8 @@ export function PipelinePage() {
                               />
                             )}
                           </label>
-                        ))}
+                          );
+                        })}
                       </div>
 
                       {/* Step preview */}
