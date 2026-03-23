@@ -7,9 +7,9 @@ import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
 import { Slider } from '../../components/ui/Slider'
 import { ProgressBar } from '../../components/ui/ProgressBar'
-import { Play, Pause, Camera, Loader2, ImagePlus, Download, FlipVertical, Upload, FolderOpen } from 'lucide-react'
+import { Play, Pause, Camera, Loader2, ImagePlus, Download, FlipVertical, Upload, FolderOpen, Save, Trash2 } from 'lucide-react'
 import { downloadBlob, canvasToBlob, fileToDataURL } from '../../lib/utils'
-import { presets, directionLabels } from './presets'
+import { presets, directionLabels, ANGLES_4, ANGLES_8, loadSavedPresets, savePreset, deletePreset, type SavedCustomPreset } from './presets'
 import { cn } from '../../lib/utils'
 
 export function Spritesheet3DPage() {
@@ -46,8 +46,18 @@ export function Spritesheet3DPage() {
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null)
   const [textureFlipY, setTextureFlipY] = useState(true)
   const [isDraggingModel, setIsDraggingModel] = useState(false)
+  const [customDirCount, setCustomDirCount] = useState<4 | 8>(8)
+  const [savedPresets, setSavedPresets] = useState<SavedCustomPreset[]>([])
+  const [savePresetName, setSavePresetName] = useState('')
+  const [showSaveInput, setShowSaveInput] = useState(false)
 
-  const currentPreset = presets[presetKey]
+  // Load saved presets on mount
+  useEffect(() => { setSavedPresets(loadSavedPresets()) }, [])
+
+  // Build effective preset — for custom, use the direction count toggle
+  const currentPreset = presetKey === 'custom'
+    ? { ...presets.custom, angles: customDirCount === 4 ? ANGLES_4 : ANGLES_8 }
+    : presets[presetKey]
 
   useEffect(() => { playingRef.current = playing }, [playing])
 
@@ -800,15 +810,36 @@ export function Spritesheet3DPage() {
 
             <Select
               label="Preset"
-              options={Object.entries(presets).map(([key, p]) => ({
-                value: key,
-                label: p.name,
-              }))}
+              options={[
+                ...Object.entries(presets).map(([key, p]) => ({
+                  value: key,
+                  label: p.name,
+                })),
+                ...savedPresets.map((sp) => ({
+                  value: `saved:${sp.name}`,
+                  label: `★ ${sp.name}`,
+                })),
+              ]}
               value={presetKey}
               onChange={(e) => {
-                setPresetKey(e.target.value)
-                const p = presets[e.target.value]
-                if (p) setElevation(p.elevation)
+                const val = e.target.value
+                if (val.startsWith('saved:')) {
+                  const name = val.slice(6)
+                  const sp = savedPresets.find((p) => p.name === name)
+                  if (sp) {
+                    setPresetKey('custom')
+                    setCustomDirCount(sp.directionCount)
+                    setElevation(sp.elevation)
+                    setFrameCount(sp.frameCount)
+                    setCaptureSize(sp.captureSize)
+                    setCameraDistance(sp.cameraDistance)
+                    setBgColor(sp.bgColor)
+                  }
+                } else {
+                  setPresetKey(val)
+                  const p = presets[val]
+                  if (p) setElevation(p.elevation)
+                }
               }}
             />
 
@@ -817,12 +848,43 @@ export function Spritesheet3DPage() {
             </p>
 
             {presetKey === 'custom' && (
-              <Slider
-                label="Elevation"
-                displayValue={`${elevation}°`}
-                min={0} max={90} value={elevation}
-                onChange={(e) => setElevation(Number((e.target as HTMLInputElement).value))}
-              />
+              <>
+                {/* Direction count toggle */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-zinc-500">Directions</span>
+                  <div className="flex flex-1 rounded-md overflow-hidden border border-zinc-200">
+                    <button
+                      onClick={() => setCustomDirCount(4)}
+                      className={cn(
+                        'flex-1 text-[11px] font-medium py-1 transition-colors',
+                        customDirCount === 4
+                          ? 'bg-zinc-800 text-white'
+                          : 'bg-zinc-50 text-zinc-500 hover:bg-zinc-100'
+                      )}
+                    >
+                      4 dirs
+                    </button>
+                    <button
+                      onClick={() => setCustomDirCount(8)}
+                      className={cn(
+                        'flex-1 text-[11px] font-medium py-1 transition-colors',
+                        customDirCount === 8
+                          ? 'bg-zinc-800 text-white'
+                          : 'bg-zinc-50 text-zinc-500 hover:bg-zinc-100'
+                      )}
+                    >
+                      8 dirs
+                    </button>
+                  </div>
+                </div>
+
+                <Slider
+                  label="Elevation"
+                  displayValue={`${elevation}°`}
+                  min={0} max={90} value={elevation}
+                  onChange={(e) => setElevation(Number((e.target as HTMLInputElement).value))}
+                />
+              </>
             )}
 
             <Slider
@@ -856,6 +918,98 @@ export function Spritesheet3DPage() {
               value={bgColor}
               onChange={(e) => setBgColor(e.target.value as typeof bgColor)}
             />
+
+            {/* Save / manage custom presets */}
+            {presetKey === 'custom' && (
+              <div className="pt-1 border-t border-zinc-100 space-y-1.5">
+                {!showSaveInput ? (
+                  <button
+                    onClick={() => setShowSaveInput(true)}
+                    className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-700 font-medium"
+                  >
+                    <Save size={11} /> Save as preset
+                  </button>
+                ) : (
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      value={savePresetName}
+                      onChange={(e) => setSavePresetName(e.target.value)}
+                      placeholder="Preset name"
+                      className="flex-1 text-[11px] px-2 py-1 border border-zinc-200 rounded focus:outline-none focus:border-blue-400"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && savePresetName.trim()) {
+                          const updated = savePreset({
+                            name: savePresetName.trim(),
+                            elevation,
+                            directionCount: customDirCount,
+                            frameCount,
+                            captureSize,
+                            cameraDistance,
+                            bgColor,
+                          })
+                          setSavedPresets(updated)
+                          setSavePresetName('')
+                          setShowSaveInput(false)
+                        }
+                        if (e.key === 'Escape') setShowSaveInput(false)
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        if (!savePresetName.trim()) return
+                        const updated = savePreset({
+                          name: savePresetName.trim(),
+                          elevation,
+                          directionCount: customDirCount,
+                          frameCount,
+                          captureSize,
+                          cameraDistance,
+                          bgColor,
+                        })
+                        setSavedPresets(updated)
+                        setSavePresetName('')
+                        setShowSaveInput(false)
+                      }}
+                      className="text-[11px] px-2 py-1 bg-zinc-800 text-white rounded hover:bg-zinc-700 font-medium"
+                    >
+                      Save
+                    </button>
+                  </div>
+                )}
+
+                {savedPresets.length > 0 && (
+                  <div className="space-y-0.5">
+                    {savedPresets.map((sp) => (
+                      <div key={sp.name} className="flex items-center justify-between group">
+                        <button
+                          onClick={() => {
+                            setCustomDirCount(sp.directionCount)
+                            setElevation(sp.elevation)
+                            setFrameCount(sp.frameCount)
+                            setCaptureSize(sp.captureSize)
+                            setCameraDistance(sp.cameraDistance)
+                            setBgColor(sp.bgColor)
+                          }}
+                          className="text-[11px] text-blue-600 hover:text-blue-700 font-medium truncate"
+                          title={`${sp.directionCount} dirs · ${sp.elevation}° · ${sp.frameCount}f · ${sp.captureSize}px`}
+                        >
+                          ★ {sp.name}
+                        </button>
+                        <button
+                          onClick={() => setSavedPresets(deletePreset(sp.name))}
+                          className="text-zinc-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-0.5"
+                          title="Delete preset"
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
