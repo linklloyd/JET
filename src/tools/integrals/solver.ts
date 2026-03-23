@@ -91,25 +91,41 @@ export function solveIntegral(
 
     // Step 3: Generate technique-specific steps
     let antiderivative: string
-    switch (technique) {
-      case 'power-rule':
-        antiderivative = solvePowerRule(expr, variable, steps)
-        break
-      case 'by-parts':
-        antiderivative = solveByParts(expr, variable, steps)
-        break
-      case 'u-substitution':
-        antiderivative = solveUSubstitution(expr, variable, steps)
-        break
-      case 'partial-fractions':
-        antiderivative = solvePartialFractions(expr, variable, steps)
-        break
-      case 'direct':
-      case 'trig-identity':
-      case 'trig-substitution':
-      default:
-        antiderivative = solveWithFormulas(expr, variable, steps)
-        break
+    try {
+      switch (technique) {
+        case 'power-rule':
+          antiderivative = solvePowerRule(expr, variable, steps)
+          break
+        case 'by-parts':
+          antiderivative = solveByParts(expr, variable, steps)
+          break
+        case 'u-substitution':
+          antiderivative = solveUSubstitution(expr, variable, steps)
+          break
+        case 'partial-fractions':
+          antiderivative = solvePartialFractions(expr, variable, steps)
+          break
+        case 'direct':
+        case 'trig-identity':
+        case 'trig-substitution':
+        default:
+          antiderivative = solveWithFormulas(expr, variable, steps)
+          break
+      }
+    } catch {
+      // Fallback: try Algebrite directly
+      try {
+        const fallbackResult = cas.integral(expr, variable)
+        const simplified = cas.simplify(fallbackResult)
+        steps.push({
+          label: 'Integración directa',
+          expression: `∫(${formatExpression(expr)}) d${variable} = ${formatExpression(simplified)}`,
+          description: 'Se aplica la fórmula de integración correspondiente',
+        })
+        antiderivative = simplified
+      } catch (fallbackErr) {
+        throw fallbackErr
+      }
     }
 
     // Step 4: Add +C for indefinite
@@ -191,14 +207,14 @@ function detectTechnique(expr: string, variable: string, method: IntegralMethod)
 
 function isPureExponential(expr: string, variable: string): boolean {
   const s = expr.replace(/\s/g, '')
-  // exp(anything with variable): exp(2*x), exp(x+1), exp(3x)
+  // Must be a SIMPLE exponential — no addition/subtraction at the top level
+  // exp(anything): exp(2*x), exp(x+1)
   if (/^exp\([^)]*\)$/.test(s) && s.includes(variable)) return true
-  // e^(anything): e^(2x), e^x
-  if (/^e\^/.test(s) && s.includes(variable)) return true
-  // constant^(anything with variable): 2^(2x), a^(4x), 5^(x+1)
-  // Base must be a number or a letter that is NOT the integration variable
+  // e^(anything): e^(2x), e^x — only if the whole expression is just e^(...)
+  if (/^e\^[\({]?[^+\-]*[\)}]?$/.test(s) && s.includes(variable) && !s.includes('/')) return true
+  // constant^(anything): 2^(2x), a^(4x) — whole expression is base^exponent
   const baseMatch = s.match(/^([a-zA-Z]|\d+)\^/)
-  if (baseMatch && baseMatch[1] !== variable && baseMatch[1] !== 'e' && s.includes(variable)) return true
+  if (baseMatch && baseMatch[1] !== variable && baseMatch[1] !== 'e' && s.includes(variable) && !s.includes('/') && !s.includes('+')) return true
   return false
 }
 
@@ -209,26 +225,81 @@ function isPolynomial(expr: string, variable: string): boolean {
   return re.test(cleaned)
 }
 
-function isProductOfClasses(expr: string, _variable: string): boolean {
-  const hasPoly = /\b[a-z]\b/.test(expr) && /\^?\d/.test(expr)
-  const hasTrigExpLog = /\b(sin|cos|tan|ln|log|exp|e\^)\b/.test(expr)
-  const hasMultiplication = expr.includes('*') || (/\d[a-z]/.test(expr))
-  return hasPoly && hasTrigExpLog && (hasMultiplication || true)
+function isProductOfClasses(expr: string, variable: string): boolean {
+  // Must have explicit multiplication between different function classes
+  // e.g., x*sin(x), x^2*exp(x), x*ln(x) — but NOT sin(2*x), NOT (e^x+1)/(e^x-1)
+  if (!expr.includes('*')) return false
+
+  // Split at top-level * only (not inside parentheses)
+  const parts = splitAtTopLevelChar(expr, '*')
+  if (parts.length < 2) return false
+
+  // Check that parts belong to different classes
+  const classes = new Set<string>()
+  for (const part of parts) {
+    if (/\b(sin|cos|tan|sec|csc|cot)\b/.test(part)) classes.add('trig')
+    else if (/\b(ln|log)\b/.test(part)) classes.add('log')
+    else if (/\bexp\b|e\^/.test(part)) classes.add('exp')
+    else if (part.includes(variable)) classes.add('algebraic')
+    else classes.add('constant')
+  }
+  // Must have at least 2 non-constant different classes
+  classes.delete('constant')
+  return classes.size >= 2
 }
 
-function hasCompositeFunction(_expr: string, _variable: string): boolean {
-  const funcPattern = /\b(sin|cos|tan|ln|log|exp)\([^)]*[+\-*/^][^)]*\)/
+/** Split at a character only when not inside parentheses */
+function splitAtTopLevelChar(expr: string, ch: string): string[] {
+  const parts: string[] = []
+  let current = ''
+  let depth = 0
+  for (let i = 0; i < expr.length; i++) {
+    if (expr[i] === '(' || expr[i] === '{') depth++
+    else if (expr[i] === ')' || expr[i] === '}') depth--
+    if (depth === 0 && expr[i] === ch) {
+      if (current.trim()) parts.push(current.trim())
+      current = ''
+    } else {
+      current += expr[i]
+    }
+  }
+  if (current.trim()) parts.push(current.trim())
+  return parts
+}
+
+function hasCompositeFunction(expr: string, variable: string): boolean {
+  // Check for functions with non-trivial arguments containing the variable
+  // sin(2x), cos(x^2), exp(3x+1), ln(x^2+1), (2x+1)^5
+  const funcPattern = new RegExp(`\\b(sin|cos|tan|ln|log|exp|sec|csc|cot)\\([^)]*[+\\-*/^].*${variable}[^)]*\\)`)
+  const funcPattern2 = new RegExp(`\\b(sin|cos|tan|ln|log|exp|sec|csc|cot)\\([^)]*${variable}[^)]*[+\\-*/^][^)]*\\)`)
   const powerPattern = /\([^)]+\)\^\d/
-  return funcPattern.test(_expr) || powerPattern.test(_expr)
+  return funcPattern.test(expr) || funcPattern2.test(expr) || powerPattern.test(expr)
 }
 
 function isRationalExpression(expr: string, _variable: string): boolean {
+  // Rational polynomial expression: has / with polynomial numerator/denominator
+  // Exclude expressions with trig/exp/log — those need different techniques
+  if (/\b(sin|cos|tan|exp|ln|log|sec|csc|cot)\b/.test(expr)) return false
   return expr.includes('/') && /\([^)]*[a-z][^)]*\)/.test(expr)
 }
 
 // ---------------------------------------------------------------------------
 // Detect which formula applies to a single term
 // ---------------------------------------------------------------------------
+
+/** Extract balanced parenthesized content starting at position start (must be '(') */
+function extractBalancedParenFromExpr(s: string, start: number): { content: string; end: number } | null {
+  if (s[start] !== '(') return null
+  let depth = 0
+  for (let i = start; i < s.length; i++) {
+    if (s[i] === '(') depth++
+    else if (s[i] === ')') {
+      depth--
+      if (depth === 0) return { content: s.slice(start + 1, i), end: i }
+    }
+  }
+  return null
+}
 
 function detectFormulaForTerm(
   term: string,
@@ -258,11 +329,19 @@ function detectFormulaForTerm(
   } catch { /* ignore */ }
 
   // Formula 7: ∫e^u du = e^u + C
+  // Must be purely exp(...) — not exp(x)/(something) or exp(x)+something
   if (t === `exp(${v})` || t === `e^(${v})` || t === `e^${v}`) {
     return { formulaId: 7 }
   }
-  if (/^exp\(/.test(t) && t.includes(v)) {
-    return { formulaId: 7 }
+  // Match exp(anything) only if the entire expression is exp(balanced parens)
+  {
+    const expMatch = t.match(/^exp\(/)
+    if (expMatch) {
+      const balanced = extractBalancedParenFromExpr(t, 3) // start after "exp"
+      if (balanced && balanced.end === t.length - 1 && t.slice(4, balanced.end).includes(v)) {
+        return { formulaId: 7 }
+      }
+    }
   }
 
   // Formula 6: ∫a^u du = a^u/ln(a) + C (constant base, variable exponent)
@@ -481,6 +560,13 @@ function solveWithFormulas(expr: string, variable: string, steps: IntegralStep[]
     if (manualResult) return manualResult
   }
 
+  // Manual: Exponential substitution for rational-exponential expressions
+  // e.g., e^x/(e^x+1), (e^x+1)/(e^x-1), 1/(1+e^x)
+  if (/\bexp\(/.test(expr) && expr.includes('/')) {
+    const manualResult = solveExpSubstitution(expr, variable, steps)
+    if (manualResult) return manualResult
+  }
+
   throw new Error('No se pudo resolver la integral')
 }
 
@@ -578,6 +664,58 @@ function solveExpExponential(expr: string, variable: string, steps: IntegralStep
     return cas.simplify(resultExpr)
   } catch {
     return resultExpr
+  }
+}
+
+/** Solve integrals with e^x substitution: u = e^x, du = e^x dx
+ *  Handles: e^x/(e^x+1), (e^x+1)/(e^x-1), 1/(1+e^x), etc.
+ *  Strategy: substitute u = e^x, rewrite in terms of u, solve, back-substitute.
+ */
+function solveExpSubstitution(expr: string, variable: string, steps: IntegralStep[]): string | null {
+  try {
+    // Substitute exp(x) → u and simplify
+    const u = 'USUB'
+    const substituted = expr.replace(/exp\(\s*\w\s*\)/g, u)
+
+    steps.push({
+      label: 'Sustitución',
+      expression: `u = e^${variable},  du = e^${variable} d${variable}  →  d${variable} = du/u`,
+      description: `Se sustituye u = e^${variable} para transformar la integral`,
+    })
+
+    // The integral becomes ∫ f(u) · (1/u) du since dx = du/u
+    // Build the new integrand: substituted / u
+    const newIntegrand = `(${substituted})/${u}`
+    const simplified = cas.simplify(newIntegrand.replace(/USUB/g, 'u'))
+
+    steps.push({
+      label: 'Reescribir en términos de u',
+      expression: `∫ ${formatExpression(simplified.replace(/\bu\b/g, 'u'))} du`,
+      description: 'Se reescribe la integral en términos de u (recordando dx = du/u)',
+    })
+
+    // Solve the u-integral
+    const uResult = cas.integral(simplified.replace(/\bUSUB\b/g, 'u'), 'u')
+    const uSimplified = cas.simplify(uResult)
+
+    steps.push({
+      label: 'Integrar en u',
+      expression: formatExpression(uSimplified),
+      description: 'Se resuelve la integral en la variable u',
+    })
+
+    // Back-substitute u = exp(x)
+    const finalResult = cas.simplify(uSimplified.replace(/\bu\b/g, `exp(${variable})`))
+
+    steps.push({
+      label: 'Sustituir de vuelta',
+      expression: `u = e^${variable} → ${formatExpression(finalResult)}`,
+      description: `Se sustituye u = e^${variable} de vuelta en el resultado`,
+    })
+
+    return finalResult
+  } catch {
+    return null
   }
 }
 
