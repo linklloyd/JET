@@ -155,12 +155,13 @@ export function FormatConverterPage() {
     if (ffmpegRef.current) return ffmpegRef.current
     const ffmpeg = new FFmpeg()
     ffmpeg.on('progress', ({ progress: p }) => {
-      setProgress(`Converting... ${Math.round(p * 100)}%`)
+      setProgress(`Converting... ${Math.round(p)}%`)
     })
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd'
+    const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm'
     await ffmpeg.load({
       coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
       wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
     })
     ffmpegRef.current = ffmpeg
     return ffmpeg

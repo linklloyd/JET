@@ -23,9 +23,10 @@ import {
   AudioWaveform,
   Play,
   MapPinned,
-  Music,
+
   ArrowRight,
   FunctionSquare,
+  Captions,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
@@ -54,8 +55,9 @@ const sections: { title: string; description: string; tools: ToolCard[] }[] = [
     tools: [
       { path: '/format-converter', label: 'Format Converter', description: 'Universal file converter — images, video, audio', icon: FileType, color: 'blue' },
       { path: '/video-to-gif', label: 'Video to GIF', description: 'Convert video clips to animated GIFs', icon: Video, color: 'indigo' },
+      { path: '/video-subtitler', label: 'Video Subtitler', description: 'Auto-transcribe & style subtitles with Whisper AI', icon: Captions, color: 'violet' },
       { path: '/audio-waveform', label: 'Audio Waveform', description: 'Visualize audio as waveform images', icon: AudioWaveform, color: 'sky' },
-      { path: '/social-converter', label: 'Social Converter', description: 'Resize media for social platforms', icon: Music, color: 'slate', disabled: true },
+
     ],
   },
   {

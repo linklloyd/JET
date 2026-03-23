@@ -1,7 +1,7 @@
 import { createBrowserRouter, Navigate, Link, useRouteError, isRouteErrorResponse } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
 import { HomePage } from './tools/home/HomePage'
-import { SocialConverterPage } from './tools/social-converter/SocialConverterPage'
+
 import { PixelUpscalerPage } from './tools/pixel-upscaler/PixelUpscalerPage'
 import { SpritesheetCompilerPage } from './tools/spritesheet-compiler/SpritesheetCompilerPage'
 import { TilesetGeneratorPage } from './tools/tileset-generator/TilesetGeneratorPage'
@@ -64,7 +64,7 @@ export const router = createBrowserRouter([
     errorElement: <ErrorPage />,
     children: [
       { index: true, element: <HomePage /> },
-      { path: 'social-converter', element: <SocialConverterPage /> },
+
       { path: 'format-converter', element: <FormatConverterPage /> },
       { path: 'image-upscaler', element: <ImageUpscalerPage /> },
       { path: 'pixel-upscaler', element: <PixelUpscalerPage /> },

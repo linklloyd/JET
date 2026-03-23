@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import {
-  Music,
+
   Maximize2,
   ZoomIn,
   Grid3X3,
@@ -113,7 +113,7 @@ const defaultSections: Section[] = [
   {
     title: 'Media',
     tools: [
-      { path: '/social-converter', label: 'Social Converter', icon: Music, disabled: true },
+
       { path: '/format-converter', label: 'Format Converter', icon: FileType },
       { path: '/video-to-gif', label: 'Video to GIF', icon: Video },
       { path: '/audio-waveform', label: 'Audio Waveform', icon: AudioWaveform },
@@ -244,7 +244,7 @@ function findActiveSectionTitle(sections: Section[], pathname: string): string |
   return null
 }
 
-export function Sidebar() {
+export function Sidebar({ onClose }: { onClose?: () => void }) {
   const location = useLocation()
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed)
   const [sectionOrder, setSectionOrder] = useState<string[] | null>(loadOrder)
@@ -255,6 +255,7 @@ export function Sidebar() {
 
   const sections = getOrderedSections(defaultSections, sectionOrder)
   const allToolsMap = getAllTools(sections)
+  const handleNavClick = onClose || (() => {})
 
   const toggleFavorite = useCallback((path: string) => {
     setFavorites((prev) => {
@@ -342,9 +343,20 @@ export function Sidebar() {
 
   return (
     <aside className="w-60 border-r border-zinc-200 bg-white flex flex-col h-screen sticky top-0">
-      <Link to="/" className="p-4 border-b border-zinc-200 flex justify-center hover:bg-zinc-50 transition-colors">
-        <img src="/favicon.png" alt="JET - Just Enough Tools" className="h-10" />
-      </Link>
+      <div className="p-4 border-b border-zinc-200 flex items-center justify-center relative">
+        <Link to="/" className="hover:opacity-80 transition-opacity" onClick={onClose}>
+          <img src="/favicon.png" alt="JET - Just Enough Tools" className="h-10" />
+        </Link>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="absolute right-3 p-1.5 rounded-lg hover:bg-zinc-100 transition-colors lg:hidden"
+            aria-label="Close navigation"
+          >
+            <X size={18} className="text-zinc-500" />
+          </button>
+        )}
+      </div>
       <nav className="flex-1 px-2 pt-4 pb-2 overflow-y-auto">
         {/* Favorites section — pinned at top */}
         {favorites.size > 0 && (
@@ -362,6 +374,7 @@ export function Sidebar() {
                   <div key={favPath} className="group relative flex items-center">
                     <NavLink
                       to={tool.subtabs ? tool.subtabs[0].path : favPath}
+                      onClick={handleNavClick}
                       className={({ isActive }) =>
                         cn(
                           'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] transition-colors flex-1 min-w-0',
@@ -459,6 +472,7 @@ export function Sidebar() {
                             <div className="group/fav relative flex items-center">
                               <NavLink
                                 to={subtabs[0].path}
+                                onClick={handleNavClick}
                                 className={() =>
                                   cn(
                                     'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] transition-colors flex-1 min-w-0',
@@ -488,6 +502,7 @@ export function Sidebar() {
                                   <NavLink
                                     key={subPath}
                                     to={subPath}
+                                    onClick={handleNavClick}
                                     className={({ isActive }) =>
                                       cn(
                                         'flex items-center gap-2 px-2.5 py-1 rounded-md text-[12px] transition-colors',
@@ -512,6 +527,7 @@ export function Sidebar() {
                         <div key={path} className="group/fav relative flex items-center">
                           <NavLink
                             to={path}
+                            onClick={handleNavClick}
                             className={({ isActive }) =>
                               cn(
                                 'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] transition-colors flex-1 min-w-0',
@@ -548,6 +564,7 @@ export function Sidebar() {
       <div className="p-2 border-t border-zinc-200">
         <NavLink
           to="/credits"
+          onClick={handleNavClick}
           className={({ isActive }) =>
             cn(
               'flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] transition-colors',

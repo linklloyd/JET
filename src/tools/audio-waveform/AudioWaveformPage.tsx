@@ -236,10 +236,11 @@ export function AudioWaveformPage() {
     ffmpeg.on('progress', ({ progress: p }) => {
       setTrimProgress(`Trimming... ${Math.round(p * 100)}%`)
     })
-    const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd'
+    const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm'
     await ffmpeg.load({
       coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
       wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+      workerURL: await toBlobURL(`${baseURL}/ffmpeg-core.worker.js`, 'text/javascript'),
     })
     ffmpegRef.current = ffmpeg
     return ffmpeg
