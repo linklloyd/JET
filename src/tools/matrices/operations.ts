@@ -1,4 +1,4 @@
-import type { Matrix, Step, OperationResult, SystemResult, EchelonTarget, DeterminantMethod, InverseMethod, SystemMethod } from './types'
+import type { Matrix, Step, OperationResult, SystemResult, CramerTab, EchelonTarget, DeterminantMethod, InverseMethod, SystemMethod } from './types'
 
 // ─── Utilities ──────────────────────────────────────────────────────────
 
@@ -745,6 +745,7 @@ export function solveSystem(
     case 'gaussian': return gaussianElimination(coefficients, constants, variables)
     case 'gauss-jordan': return gaussJordan(coefficients, constants, variables)
     case 'montante': return montante(coefficients, constants, variables)
+    case 'cramer': return cramer(coefficients, constants, variables)
   }
 }
 
@@ -1003,6 +1004,90 @@ function montante(coeff: Matrix, constants: number[], variables: string[]): Syst
   const verification = verifySystem(coeff, constants, solution, variables)
 
   return { solution, steps, variables, verification }
+}
+
+function cramer(coeff: Matrix, constants: number[], variables: string[]): SystemResult {
+  const n = coeff.length
+  const A = cloneMatrix(coeff)
+  const detA = determinantValue(A)
+
+  if (Math.abs(detA) < 1e-10) {
+    throw new Error('El sistema no tiene solución única (det(A) = 0, la matriz es singular)')
+  }
+
+  const steps: Step[] = []
+  const cramerTabs: CramerTab[] = []
+
+  // Tab 0: det(A)
+  const detAResult = determinantByExpansion(A, 'row', 0)
+  cramerTabs.push({
+    label: 'det(A)',
+    matrix: cloneMatrix(A),
+    determinant: detA,
+    steps: detAResult.steps,
+  })
+
+  steps.push({
+    label: 'Matriz de coeficientes A',
+    description: matrixToString(A),
+    matrix: cloneMatrix(A),
+  })
+  steps.push({
+    label: 'det(A)',
+    description: `det(A) = ${fmtNum(detA)}`,
+  })
+
+  const solution: number[] = []
+
+  for (let i = 0; i < n; i++) {
+    // Build A_i: replace column i with constants
+    const Ai = cloneMatrix(A)
+    for (let r = 0; r < n; r++) {
+      Ai[r][i] = constants[r]
+    }
+
+    const detAi = determinantValue(Ai)
+    const xi = detAi / detA
+
+    // Steps for this A_i determinant
+    const detAiResult = determinantByExpansion(Ai, 'row', 0)
+
+    const subscript = sub(i + 1)
+    cramerTabs.push({
+      label: `A${subscript}`,
+      matrix: cloneMatrix(Ai),
+      determinant: detAi,
+      variable: variables[i],
+      value: xi,
+      steps: detAiResult.steps,
+    })
+
+    steps.push({
+      label: `Matriz A${subscript}`,
+      description: `Reemplazar columna ${i + 1} de A con el vector de constantes b:\n${matrixToString(Ai)}`,
+      matrix: cloneMatrix(Ai),
+    })
+    steps.push({
+      label: `det(A${subscript})`,
+      description: `det(A${subscript}) = ${fmtNum(detAi)}`,
+    })
+    steps.push({
+      label: `${variables[i]}`,
+      description: `${variables[i]} = det(A${subscript}) / det(A) = ${fmtNum(detAi)} / ${fmtNum(detA)} = ${fmtNum(xi)}`,
+    })
+
+    solution.push(xi)
+  }
+
+  // Final summary step
+  steps.push({
+    label: 'Solución',
+    description: variables.map((v, i) => `${v} = ${fmtNum(solution[i])}`).join('\n'),
+  })
+
+  const verification = verifySystem(coeff, constants, solution, variables)
+
+  return { solution, steps, variables, verification, cramerTabs }
 }
 
 function verifySystem(coeff: Matrix, constants: number[], solution: number[], _variables: string[]): string[] {

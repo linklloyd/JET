@@ -17,6 +17,7 @@ import type {
   Step,
   OperationResult,
   SystemResult,
+  CramerTab,
   OperationType,
   EchelonTarget,
   DeterminantMethod,
@@ -40,7 +41,7 @@ const OP_DESCRIPTIONS: Record<OperationType, string> = {
   inverse: 'Matriz inversa por Gauss-Jordan o cofactores',
   determinant: 'Sarrus, expansión por renglón o triangular',
   cofactors: 'Matriz de cofactores B y Adj(B)',
-  systems: 'Gaussiana, Gauss-Jordan o Montante',
+  systems: 'Gaussiana, Gauss-Jordan, Montante o Cramer',
   visualizer: 'Visualize 2D & 3D matrix transformations',
 }
 
@@ -233,6 +234,7 @@ export function MatricesPage() {
             { value: 'gaussian', label: 'Eliminación Gaussiana' },
             { value: 'gauss-jordan', label: 'Gauss-Jordan' },
             { value: 'montante', label: 'Montante (Bareiss)' },
+            { value: 'cramer', label: 'Regla de Cramer' },
           ]}
         />
       )}
@@ -273,6 +275,7 @@ export function MatricesPage() {
                 matrix={matA}
                 rows={rowsA}
                 cols={needsSquare ? rowsA : colsA}
+                gridId="matA"
                 onChange={(r, c, v) => {
                   const next = cloneMatrix(matA)
                   next[r][c] = v
@@ -317,6 +320,7 @@ export function MatricesPage() {
                   matrix={matB}
                   rows={rowsB}
                   cols={colsB}
+                  gridId="matB"
                   onChange={(r, c, v) => {
                     const next = cloneMatrix(matB)
                     next[r][c] = v
@@ -395,29 +399,35 @@ export function MatricesPage() {
                 {Array.from({ length: sysSize }, (_, j) => (
                   <div key={j} className="flex items-center gap-0.5">
                     {j > 0 && <span className="text-sm text-zinc-400 w-4 text-center">+</span>}
-                    <input
-                      type="number"
+                    <MatrixCell
                       value={sysCoeffs[i]?.[j] ?? 0}
-                      onChange={e => {
+                      onChange={v => {
                         const next = cloneMatrix(sysCoeffs)
-                        next[i][j] = parseFloat(e.target.value) || 0
+                        next[i][j] = v
                         setSysCoeffs(next)
                       }}
-                      className="w-16 rounded border border-zinc-200 px-2 py-1.5 text-center text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+                      gridId="sys-coeff"
+                      row={i}
+                      col={j}
+                      maxRows={sysSize}
+                      maxCols={sysSize}
                     />
                     <span className="text-sm font-mono text-zinc-500">{sysVars[j]}</span>
                   </div>
                 ))}
                 <span className="text-sm text-zinc-400 mx-1">=</span>
-                <input
-                  type="number"
+                <MatrixCell
                   value={sysConstants[i] ?? 0}
-                  onChange={e => {
+                  onChange={v => {
                     const next = [...sysConstants]
-                    next[i] = parseFloat(e.target.value) || 0
+                    next[i] = v
                     setSysConstants(next)
                   }}
-                  className="w-16 rounded border border-zinc-200 px-2 py-1.5 text-center text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+                  gridId="sys-const"
+                  row={i}
+                  col={0}
+                  maxRows={sysSize}
+                  maxCols={1}
                 />
               </div>
             ))}
@@ -493,6 +503,11 @@ export function MatricesPage() {
             </div>
           </div>
 
+          {/* Cramer tabs — per-matrix breakdown */}
+          {systemResult.cramerTabs && (
+            <CramerTabs tabs={systemResult.cramerTabs} />
+          )}
+
           {/* Steps */}
           <StepsSection steps={systemResult.steps} open={stepsOpen} onToggle={() => setStepsOpen(!stepsOpen)} />
 
@@ -510,6 +525,83 @@ export function MatricesPage() {
                 <div className="px-4 pb-4 space-y-1">
                   {systemResult.verification.map((line, i) => (
                     <p key={i} className="text-sm font-mono text-zinc-600">{line}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Cramer Tabs ────────────────────────────────────────────────────────
+
+function CramerTabs({ tabs }: { tabs: CramerTab[] }) {
+  const [activeIdx, setActiveIdx] = useState(0)
+  const [tabStepsOpen, setTabStepsOpen] = useState(true)
+  const tab = tabs[activeIdx]
+
+  return (
+    <div className="bg-white border border-zinc-200 rounded-lg overflow-hidden">
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 px-3 pt-3 pb-2 overflow-x-auto border-b border-zinc-100">
+        {tabs.map((t, i) => (
+          <button
+            key={i}
+            onClick={() => { setActiveIdx(i); setTabStepsOpen(true) }}
+            className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              i === activeIdx
+                ? 'border-blue-400 bg-blue-50 text-blue-700'
+                : 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {tab && (
+        <div className="p-4 space-y-3">
+          {/* Matrix display */}
+          <MatrixDisplay matrix={tab.matrix} />
+
+          {/* Determinant result */}
+          <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            <p className="text-sm font-mono font-semibold text-blue-900">
+              {tab.label.startsWith('det(') ? tab.label : `det(${tab.label})`} = {fmtNum(tab.determinant)}
+            </p>
+          </div>
+
+          {/* Variable result (for A_i tabs) */}
+          {tab.variable != null && tab.value != null && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+              <p className="text-sm font-mono font-semibold text-emerald-900">
+                {tab.variable} = det({tab.label}) / det(A) = {fmtNum(tab.determinant)} / {fmtNum(tabs[0].determinant)} = {fmtNum(tab.value)}
+              </p>
+            </div>
+          )}
+
+          {/* Steps for this determinant */}
+          {tab.steps.length > 0 && (
+            <div className="border border-zinc-100 rounded-lg">
+              <button
+                onClick={() => setTabStepsOpen(!tabStepsOpen)}
+                className="w-full flex items-center gap-2 p-3 text-left"
+              >
+                {tabStepsOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide">Procedimiento</p>
+              </button>
+              {tabStepsOpen && (
+                <div className="px-3 pb-3 space-y-3">
+                  {tab.steps.map((step, si) => (
+                    <div key={si}>
+                      <p className="text-[11px] font-bold text-blue-600 uppercase tracking-wide mb-1">{step.label}</p>
+                      <pre className="text-xs font-mono text-zinc-600 whitespace-pre-wrap">{step.description}</pre>
+                      {step.matrix && <MatrixDisplay matrix={step.matrix} separatorCol={step.separatorCol} />}
+                    </div>
                   ))}
                 </div>
               )}
@@ -705,12 +797,204 @@ function DimensionPicker({ rows, cols, onRowsChange, onColsChange, lockSquare }:
   )
 }
 
-function MatrixGrid({ matrix, rows, cols, onChange, onPasteMatrix }: {
+// ─── Dynamic Matrix Input ───────────────────────────────────────────────
+
+function parseInputValue(raw: string): number {
+  const s = raw.trim()
+  if (!s) return 0
+  if (s.includes('/')) {
+    const [num, den] = s.split('/')
+    const n = parseFloat(num)
+    const d = parseFloat(den)
+    if (!d || isNaN(n) || isNaN(d)) return 0
+    return n / d
+  }
+  const v = parseFloat(s)
+  return isNaN(v) ? 0 : v
+}
+
+function formatCellValue(n: number): string {
+  if (n === 0) return '0'
+  // Show integer if integer
+  if (Number.isInteger(n)) return String(n)
+  // Try to show as fraction if close to a simple one
+  for (let d = 2; d <= 12; d++) {
+    const num = n * d
+    if (Math.abs(num - Math.round(num)) < 1e-9) {
+      return `${Math.round(num)}/${d}`
+    }
+  }
+  return String(Math.round(n * 10000) / 10000)
+}
+
+function focusCell(gridId: string, row: number, col: number) {
+  const el = document.querySelector<HTMLInputElement>(
+    `[data-grid="${gridId}"][data-row="${row}"][data-col="${col}"]`
+  )
+  el?.focus()
+}
+
+const isTouchDevice = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+
+function NumericKeypad({ value, onConfirm, onCancel }: {
+  value: string
+  onConfirm: (val: string) => void
+  onCancel: () => void
+}) {
+  const [display, setDisplay] = useState(value)
+
+  const press = (ch: string) => {
+    if (ch === '⌫') setDisplay(prev => prev.slice(0, -1) || '0')
+    else if (ch === '±') setDisplay(prev => prev.startsWith('-') ? prev.slice(1) : '-' + prev)
+    else if (ch === '✓') onConfirm(display)
+    else setDisplay(prev => prev === '0' ? ch : prev + ch)
+  }
+
+  const keys = ['7','8','9','4','5','6','1','2','3','±','0','.','/','/','⌫','✓']
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/20" onClick={onCancel}>
+      <div
+        className="w-full max-w-sm bg-white rounded-t-2xl shadow-2xl p-3 pb-6 space-y-2"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Display */}
+        <div className="bg-zinc-100 rounded-lg px-3 py-2 text-right text-lg font-mono font-semibold text-zinc-800 min-h-[40px]">
+          {display || '0'}
+        </div>
+        {/* Keys */}
+        <div className="grid grid-cols-4 gap-1.5">
+          {['7','8','9','⌫','4','5','6','±','1','2','3','/','.',`0`,''].map((k, i) => (
+            k ? (
+              <button
+                key={i}
+                onClick={() => press(k)}
+                className={`py-3 rounded-lg text-base font-semibold transition-colors ${
+                  k === '⌫' ? 'bg-red-100 text-red-600 active:bg-red-200' :
+                  k === '±' || k === '/' ? 'bg-zinc-200 text-zinc-700 active:bg-zinc-300' :
+                  'bg-zinc-100 text-zinc-800 active:bg-zinc-200'
+                }`}
+              >
+                {k}
+              </button>
+            ) : <div key={i} />
+          ))}
+          <button
+            onClick={() => onConfirm(display)}
+            className="col-span-4 py-3 rounded-lg bg-blue-500 text-white font-semibold text-base active:bg-blue-600"
+          >
+            Confirmar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MatrixCell({ value, onChange, gridId, row, col, maxRows, maxCols }: {
+  value: number
+  onChange: (v: number) => void
+  gridId: string
+  row: number
+  col: number
+  maxRows: number
+  maxCols: number
+}) {
+  const [editing, setEditing] = useState(false)
+  const [textValue, setTextValue] = useState(formatCellValue(value))
+  const [showKeypad, setShowKeypad] = useState(false)
+
+  // Sync when external value changes
+  useEffect(() => {
+    if (!editing) setTextValue(formatCellValue(value))
+  }, [value, editing])
+
+  const commit = (raw: string) => {
+    const parsed = parseInputValue(raw)
+    onChange(parsed)
+    setTextValue(formatCellValue(parsed))
+    setEditing(false)
+  }
+
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+    setEditing(true)
+    if (isTouchDevice) {
+      e.target.blur()
+      setShowKeypad(true)
+    } else {
+      e.target.select()
+    }
+  }
+
+  const handleBlur = () => {
+    commit(textValue)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const mod = e.metaKey || e.ctrlKey
+    if (mod) return // let copy/paste propagate
+
+    switch (e.key) {
+      case 'ArrowRight':
+        e.preventDefault()
+        if (col < maxCols - 1) focusCell(gridId, row, col + 1)
+        else if (row < maxRows - 1) focusCell(gridId, row + 1, 0)
+        break
+      case 'ArrowLeft':
+        e.preventDefault()
+        if (col > 0) focusCell(gridId, row, col - 1)
+        else if (row > 0) focusCell(gridId, row - 1, maxCols - 1)
+        break
+      case 'ArrowDown':
+        e.preventDefault()
+        if (row < maxRows - 1) focusCell(gridId, row + 1, col)
+        break
+      case 'ArrowUp':
+        e.preventDefault()
+        if (row > 0) focusCell(gridId, row - 1, col)
+        break
+      case 'Enter':
+        e.preventDefault()
+        commit(textValue)
+        if (row < maxRows - 1) focusCell(gridId, row + 1, col)
+        else if (col < maxCols - 1) focusCell(gridId, row, col + 1)
+        break
+    }
+  }
+
+  return (
+    <>
+      <input
+        data-grid={gridId}
+        data-row={row}
+        data-col={col}
+        type="text"
+        inputMode={isTouchDevice ? 'none' : 'decimal'}
+        value={textValue}
+        onChange={(e) => { setEditing(true); setTextValue(e.target.value) }}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        className="w-16 rounded border border-zinc-200 px-2 py-1.5 text-center text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+      />
+      {showKeypad && (
+        <NumericKeypad
+          value={textValue}
+          onConfirm={(val) => { commit(val); setShowKeypad(false) }}
+          onCancel={() => { setShowKeypad(false); setEditing(false) }}
+        />
+      )}
+    </>
+  )
+}
+
+function MatrixGrid({ matrix, rows, cols, onChange, onPasteMatrix, gridId = 'default' }: {
   matrix: Matrix
   rows: number
   cols: number
   onChange: (r: number, c: number, v: number) => void
   onPasteMatrix?: (matrix: Matrix, rows: number, cols: number) => void
+  gridId?: string
 }) {
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     const mod = e.metaKey || e.ctrlKey
@@ -735,12 +1019,15 @@ function MatrixGrid({ matrix, rows, cols, onChange, onPasteMatrix }: {
       <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
         {Array.from({ length: rows }, (_, i) =>
           Array.from({ length: cols }, (_, j) => (
-            <input
+            <MatrixCell
               key={`${i}-${j}`}
-              type="number"
               value={matrix[i]?.[j] ?? 0}
-              onChange={(e) => onChange(i, j, parseFloat(e.target.value) || 0)}
-              className="w-16 rounded border border-zinc-200 px-2 py-1.5 text-center text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+              onChange={(v) => onChange(i, j, v)}
+              gridId={gridId}
+              row={i}
+              col={j}
+              maxRows={rows}
+              maxCols={cols}
             />
           ))
         )}
@@ -1002,6 +1289,7 @@ function MatrixVisualizer() {
             matrix={mat}
             rows={dim}
             cols={dim}
+            gridId="viz"
             onChange={(r, c, v) => {
               const next = mat.map(row => [...row])
               next[r][c] = v
