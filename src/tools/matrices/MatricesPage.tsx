@@ -850,8 +850,6 @@ function NumericKeypad({ value, onConfirm, onCancel }: {
     else setDisplay(prev => prev === '0' ? ch : prev + ch)
   }
 
-  const keys = ['7','8','9','4','5','6','1','2','3','±','0','.','/','/','⌫','✓']
-
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/20" onClick={onCancel}>
       <div
