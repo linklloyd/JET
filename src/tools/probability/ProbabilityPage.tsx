@@ -6,19 +6,24 @@ import {
   binomialBase,
   poissonBase,
   hypergeometricDual,
-  customDiscreteBase,
+  normalBase,
+  tStudentBase,
+  chiSquareBase,
+  fisherBase,
   evaluateInciso,
   evaluateIncisoRange,
+  evaluateIncisoContinuous,
+  evaluateIncisoContinuousRange,
   type DistBaseResult,
+  type ContinuousResult,
   type HyperDualResult,
-  type DiscreteEntry,
   type TableRow,
   type Operator,
   type RangeOp,
   type IncisoResult,
 } from './distributions'
 
-type DistType = 'binomial' | 'poisson' | 'hypergeometric' | 'custom'
+type DistType = 'binomial' | 'poisson' | 'hypergeometric' | 'normal' | 'tstudent' | 'chi-square' | 'fisher'
 
 interface Inciso {
   mode: 'single' | 'range'
@@ -36,7 +41,10 @@ const DIST_DESCRIPTIONS: Record<DistType, string> = {
   binomial: 'Probabilidad de k éxitos en n ensayos independientes',
   poisson: 'Probabilidad de eventos en un intervalo basado en λ',
   hypergeometric: 'Probabilidad sin reemplazo (selección de subconjuntos)',
-  custom: 'Define valores y probabilidades manualmente',
+  normal: 'Distribución continua simétrica (campana de Gauss)',
+  tstudent: 'Distribución para muestras pequeñas con varianza desconocida',
+  'chi-square': 'Distribución para pruebas de bondad de ajuste e independencia',
+  fisher: 'Distribución para comparar varianzas de dos poblaciones',
 }
 
 const OPERATORS: { value: Operator; label: string }[] = [
@@ -55,13 +63,16 @@ const DIST_TITLES: Record<DistType, string> = {
   binomial: 'Distribución Binomial',
   poisson: 'Distribución de Poisson',
   hypergeometric: 'Distribución Hipergeométrica',
-  custom: 'Distribución Discreta Personalizada',
+  normal: 'Distribución Normal',
+  tstudent: 'Distribución T-Student',
+  'chi-square': 'Distribución Chi-Cuadrada (χ²)',
+  fisher: 'Distribución F de Fisher',
 }
 
 export function ProbabilityPage() {
   const { distType: urlDistType } = useParams<{ distType: string }>()
   const distType = (
-    ['binomial', 'poisson', 'hypergeometric', 'custom'].includes(urlDistType ?? '')
+    ['binomial', 'poisson', 'hypergeometric', 'normal', 'tstudent', 'chi-square', 'fisher'].includes(urlDistType ?? '')
       ? urlDistType
       : 'binomial'
   ) as DistType
@@ -91,16 +102,27 @@ export function ProbabilityPage() {
   const [hypK, setHypK] = useState('10')
   const [hypn, setHypn] = useState('5')
 
-  // Custom discrete params
-  const [customEntries, setCustomEntries] = useState<DiscreteEntry[]>([
-    { value: 1, probability: 0.2 },
-    { value: 2, probability: 0.3 },
-    { value: 3, probability: 0.5 },
-  ])
+  // Normal params
+  const [normMu, setNormMu] = useState('0')
+  const [normSigma, setNormSigma] = useState('1')
+
+  // T-Student params
+  const [tDf, setTDf] = useState('10')
+
+  // Chi-Square params
+  const [chiK, setChiK] = useState('5')
+
+  // Fisher params
+  const [fishD1, setFishD1] = useState('5')
+  const [fishD2, setFishD2] = useState('10')
+
+  // Continuous result (for normal, t-student, chi-square, fisher)
+  const [contResult, setContResult] = useState<ContinuousResult | null>(null)
 
   // Reset when distribution type changes via URL
   useEffect(() => {
     setBase(null)
+    setContResult(null)
     setHyperDual(null)
     setIncisos([])
     setHyperIncisosSuc([])
@@ -110,13 +132,38 @@ export function ProbabilityPage() {
     setTableOpenFail(true)
   }, [distType])
 
+  const isContinuous = ['normal', 'tstudent', 'chi-square', 'fisher'].includes(distType)
+
   const calculate = useCallback(() => {
     if (distType === 'hypergeometric') {
       const dual = hypergeometricDual(+hypN, +hypK, +hypn)
       setHyperDual(dual)
       setBase(null)
+      setContResult(null)
       setHyperIncisosSuc([])
       setHyperIncisosFail([])
+    } else if (isContinuous) {
+      let r: ContinuousResult
+      switch (distType) {
+        case 'normal':
+          r = normalBase(+normMu, +normSigma)
+          break
+        case 'tstudent':
+          r = tStudentBase(+tDf)
+          break
+        case 'chi-square':
+          r = chiSquareBase(+chiK)
+          break
+        case 'fisher':
+          r = fisherBase(+fishD1, +fishD2)
+          break
+        default:
+          r = normalBase(0, 1)
+      }
+      setContResult(r)
+      setBase(null)
+      setHyperDual(null)
+      setIncisos([])
     } else {
       let r: DistBaseResult
       switch (distType) {
@@ -126,22 +173,29 @@ export function ProbabilityPage() {
         case 'poisson':
           r = poissonBase(+poisLambda)
           break
-        case 'custom':
-          r = customDiscreteBase(customEntries)
-          break
+        default:
+          r = binomialBase(+binN, +binP)
       }
       setBase(r)
+      setContResult(null)
       setHyperDual(null)
       setIncisos([])
     }
     setTableOpen(true)
     setTableOpenSuc(true)
     setTableOpenFail(true)
-  }, [distType, binN, binP, poisLambda, hypN, hypK, hypn, customEntries])
+  }, [distType, binN, binP, poisLambda, hypN, hypK, hypn, normMu, normSigma, tDf, chiK, fishD1, fishD2, isContinuous])
 
   // ─── Inciso management (generic) ──────────────────────────────────────
 
-  const autoCalc = (inc: Inciso, table: TableRow[]): IncisoResult => {
+  const autoCalc = (inc: Inciso, table: TableRow[], cdf?: (x: number) => number): IncisoResult => {
+    if (cdf) {
+      // Continuous distribution
+      if (inc.mode === 'range') {
+        return evaluateIncisoContinuousRange(cdf, +inc.lowValue, inc.opLow, inc.opHigh, +inc.highValue)
+      }
+      return evaluateIncisoContinuous(cdf, inc.operator, +inc.value)
+    }
     if (inc.mode === 'range') {
       return evaluateIncisoRange(table, +inc.lowValue, inc.opLow, inc.opHigh, +inc.highValue)
     }
@@ -152,6 +206,7 @@ export function ProbabilityPage() {
     list: Inciso[],
     setList: React.Dispatch<React.SetStateAction<Inciso[]>>,
     table: TableRow[],
+    cdf?: (x: number) => number,
   ) => ({
     add: () => {
       const newInc: Inciso = {
@@ -159,14 +214,14 @@ export function ProbabilityPage() {
         lowValue: '0', opLow: '<', opHigh: '<', highValue: '5',
         result: null,
       }
-      newInc.result = autoCalc(newInc, table)
+      newInc.result = autoCalc(newInc, table, cdf)
       setList([...list, newInc])
     },
     remove: (idx: number) => setList(list.filter((_, i) => i !== idx)),
     update: (idx: number, field: string, val: string) => {
       const next = [...list]
       const updated = { ...next[idx], [field]: val }
-      updated.result = autoCalc(updated, table)
+      updated.result = autoCalc(updated, table, cdf)
       next[idx] = updated
       setList(next)
     },
@@ -174,28 +229,11 @@ export function ProbabilityPage() {
       const next = [...list]
       const inc = { ...next[idx] }
       inc.mode = inc.mode === 'single' ? 'range' : 'single'
-      inc.result = autoCalc(inc, table)
+      inc.result = autoCalc(inc, table, cdf)
       next[idx] = inc
       setList(next)
     },
   })
-
-  // ─── Custom entries management ────────────────────────────────────────
-
-  const addCustomEntry = () => {
-    setCustomEntries([...customEntries, { value: customEntries.length + 1, probability: 0.1 }])
-  }
-
-  const removeCustomEntry = (idx: number) => {
-    if (customEntries.length <= 2) return
-    setCustomEntries(customEntries.filter((_, i) => i !== idx))
-  }
-
-  const updateCustomEntry = (idx: number, field: 'value' | 'probability', val: string) => {
-    const next = [...customEntries]
-    next[idx] = { ...next[idx], [field]: +val }
-    setCustomEntries(next)
-  }
 
   // Highlighted x values from incisos
   const getHighlightXs = (incList: Inciso[]) => {
@@ -268,42 +306,29 @@ export function ProbabilityPage() {
           </div>
         )}
 
-        {distType === 'custom' && (
-          <div className="space-y-3">
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {customEntries.map((entry, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <label className="text-xs text-zinc-500 w-8 shrink-0"><M>x</M><sub className="text-[10px]">{i + 1}</sub></label>
-                  <input
-                    type="number"
-                    value={entry.value}
-                    onChange={(e) => updateCustomEntry(i, 'value', e.target.value)}
-                    className="flex-1 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-                    placeholder="Valor"
-                  />
-                  <input
-                    type="number"
-                    value={entry.probability}
-                    onChange={(e) => updateCustomEntry(i, 'probability', e.target.value)}
-                    className="flex-1 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-                    placeholder="Probabilidad"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                  />
-                  <button
-                    onClick={() => removeCustomEntry(i)}
-                    className="text-zinc-300 hover:text-red-500 transition-colors"
-                    title="Eliminar"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button onClick={addCustomEntry} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700">
-              <Plus size={12} /> Agregar valor
-            </button>
+        {distType === 'normal' && (
+          <div className="grid grid-cols-2 gap-4">
+            <InputField label={<>μ <M>(media)</M></>} value={normMu} onChange={setNormMu} step={0.1} />
+            <InputField label={<>σ <M>(desviación estándar)</M></>} value={normSigma} onChange={setNormSigma} min={0.01} step={0.1} />
+          </div>
+        )}
+
+        {distType === 'tstudent' && (
+          <div className="grid grid-cols-1 gap-4 max-w-xs">
+            <InputField label={<>ν <M>(grados de libertad)</M></>} value={tDf} onChange={setTDf} min={1} step={1} />
+          </div>
+        )}
+
+        {distType === 'chi-square' && (
+          <div className="grid grid-cols-1 gap-4 max-w-xs">
+            <InputField label={<>k <M>(grados de libertad)</M></>} value={chiK} onChange={setChiK} min={1} step={1} />
+          </div>
+        )}
+
+        {distType === 'fisher' && (
+          <div className="grid grid-cols-2 gap-4">
+            <InputField label={<>d₁ <M>(grados de libertad numerador)</M></>} value={fishD1} onChange={setFishD1} min={1} step={1} />
+            <InputField label={<>d₂ <M>(grados de libertad denominador)</M></>} value={fishD2} onChange={setFishD2} min={1} step={1} />
           </div>
         )}
 
@@ -312,8 +337,8 @@ export function ProbabilityPage() {
         </Button>
       </div>
 
-      {/* ═══════════ RESULTS — non-hypergeometric ═══════════ */}
-      {base && distType !== 'hypergeometric' && (
+      {/* ═══════════ RESULTS — discrete non-hypergeometric ═══════════ */}
+      {base && !isContinuous && distType !== 'hypergeometric' && (
         <DistPanel
           base={base}
           incisos={incisos}
@@ -327,6 +352,25 @@ export function ProbabilityPage() {
               : distType === 'poisson'
               ? (x: number) => `(${poisLambda}^${x} · e^-${poisLambda}) / ${x}!`
               : undefined
+          }
+        />
+      )}
+
+      {/* ═══════════ RESULTS — continuous ═══════════ */}
+      {contResult && isContinuous && (
+        <DistPanel
+          base={contResult}
+          incisos={incisos}
+          handlers={makeIncisoHandlers(incisos, setIncisos, contResult.table, contResult.cdf)}
+          highlightXs={highlightXs}
+          tableOpen={tableOpen}
+          setTableOpen={setTableOpen}
+          isContinuous
+          pdfLabel={
+            distType === 'normal' ? 'f(x)' :
+            distType === 'tstudent' ? 'f(t)' :
+            distType === 'chi-square' ? 'f(χ²)' :
+            'f(x)'
           }
         />
       )}
@@ -390,9 +434,9 @@ interface IncisoHandlers {
 type ChartColor = 'blue' | 'amber'
 
 function DistPanel({
-  base, incisos, handlers, highlightXs, tableOpen, setTableOpen, color = 'blue', formulaFn,
+  base, incisos, handlers, highlightXs, tableOpen, setTableOpen, color = 'blue', formulaFn, isContinuous: continuous, pdfLabel,
 }: {
-  base: DistBaseResult
+  base: DistBaseResult | ContinuousResult
   incisos: Inciso[]
   handlers: IncisoHandlers
   highlightXs: Set<number>
@@ -400,6 +444,8 @@ function DistPanel({
   setTableOpen: (v: boolean) => void
   color?: ChartColor
   formulaFn?: (x: number) => string
+  isContinuous?: boolean
+  pdfLabel?: string
 }) {
   return (
     <div className="space-y-4">
@@ -416,7 +462,11 @@ function DistPanel({
       {/* Chart */}
       <div className="bg-white border border-zinc-200 rounded-lg p-4">
         <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide mb-3">Gráfico de distribución</p>
-        <DistChart table={base.table} highlightXs={highlightXs} color={color} />
+        {continuous ? (
+          <ContinuousChart table={base.table} color={color} yLabel={pdfLabel || 'f(x)'} />
+        ) : (
+          <DistChart table={base.table} highlightXs={highlightXs} color={color} />
+        )}
       </div>
 
       {/* Table */}
@@ -427,7 +477,7 @@ function DistPanel({
         </button>
         {tableOpen && (
           <div className="px-4 pb-4">
-            <DistTable table={base.table} highlightXs={highlightXs} formulaFn={formulaFn} />
+            <DistTable table={base.table} highlightXs={highlightXs} formulaFn={formulaFn} isContinuous={continuous} pdfLabel={pdfLabel} />
           </div>
         )}
       </div>
@@ -630,7 +680,10 @@ function StatItem({ label, value, formula }: { label: string; value: string; for
   )
 }
 
-function DistTable({ table, highlightXs, formulaFn }: { table: TableRow[]; highlightXs: Set<number>; formulaFn?: (x: number) => string }) {
+function DistTable({ table, highlightXs, formulaFn, isContinuous, pdfLabel }: {
+  table: TableRow[]; highlightXs: Set<number>; formulaFn?: (x: number) => string
+  isContinuous?: boolean; pdfLabel?: string
+}) {
   return (
     <div className="max-h-80 overflow-y-auto rounded border border-zinc-100">
       <table className="w-full text-sm">
@@ -640,21 +693,25 @@ function DistTable({ table, highlightXs, formulaFn }: { table: TableRow[]; highl
             {formulaFn && (
               <th className="text-left px-3 py-2 font-medium text-zinc-600 border-b border-zinc-200">Fórmula</th>
             )}
-            <th className="text-right px-3 py-2 font-medium text-zinc-600 border-b border-zinc-200"><M>P(X = x)</M></th>
-            <th className="text-right px-3 py-2 font-medium text-zinc-600 border-b border-zinc-200"><M>P(X ≤ x)</M></th>
+            <th className="text-right px-3 py-2 font-medium text-zinc-600 border-b border-zinc-200">
+              <M>{isContinuous ? (pdfLabel || 'f(x)') : 'P(X = x)'}</M>
+            </th>
+            <th className="text-right px-3 py-2 font-medium text-zinc-600 border-b border-zinc-200">
+              <M>{isContinuous ? 'F(x)' : 'P(X ≤ x)'}</M>
+            </th>
           </tr>
         </thead>
         <tbody>
-          {table.map((row) => (
-            <tr key={row.x} className={highlightXs.has(row.x) ? 'bg-blue-50 font-medium' : 'hover:bg-zinc-50'}>
+          {table.map((row, i) => (
+            <tr key={i} className={highlightXs.has(row.x) ? 'bg-blue-50 font-medium' : 'hover:bg-zinc-50'}>
               <td className="px-3 py-1.5 border-b border-zinc-100 font-mono">{row.x}</td>
               {formulaFn && (
                 <td className="px-3 py-1.5 border-b border-zinc-100 font-mono text-[11px] text-zinc-500 whitespace-nowrap">
                   {formulaFn(row.x)}
                 </td>
               )}
-              <td className="px-3 py-1.5 border-b border-zinc-100 text-right font-mono">{row.px.toFixed(4)}</td>
-              <td className="px-3 py-1.5 border-b border-zinc-100 text-right font-mono">{row.cumulative.toFixed(4)}</td>
+              <td className="px-3 py-1.5 border-b border-zinc-100 text-right font-mono">{row.px.toFixed(6)}</td>
+              <td className="px-3 py-1.5 border-b border-zinc-100 text-right font-mono">{row.cumulative.toFixed(6)}</td>
             </tr>
           ))}
         </tbody>
@@ -747,6 +804,99 @@ function DistChart({ table, highlightXs, color = 'blue' }: { table: TableRow[]; 
     ctx.fillText('P(X = x)', 0, 0)
     ctx.restore()
   }, [table, highlightXs])
+
+  return <canvas ref={canvasRef} className="w-full" style={{ height: 220 }} />
+}
+
+// ─── Continuous curve chart ──────────────────────────────────────────────
+
+function ContinuousChart({ table, color = 'blue', yLabel }: { table: TableRow[]; color?: ChartColor; yLabel: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || table.length === 0) return
+
+    const dpr = window.devicePixelRatio || 1
+    const w = canvas.clientWidth
+    const h = 220
+    canvas.width = w * dpr
+    canvas.height = h * dpr
+    canvas.style.height = `${h}px`
+
+    const ctx = canvas.getContext('2d')!
+    ctx.scale(dpr, dpr)
+    ctx.clearRect(0, 0, w, h)
+
+    const maxP = Math.max(...table.map((r) => r.px), 0.001) * 1.1
+    const minX = table[0].x
+    const maxX = table[table.length - 1].x
+    const pad = { top: 16, bottom: 32, left: 48, right: 16 }
+    const chartW = w - pad.left - pad.right
+    const chartH = h - pad.top - pad.bottom
+
+    const toCanvasX = (x: number) => pad.left + ((x - minX) / (maxX - minX)) * chartW
+    const toCanvasY = (y: number) => pad.top + chartH - (y / maxP) * chartH
+
+    // Y-axis gridlines
+    ctx.strokeStyle = '#e4e4e7'
+    ctx.lineWidth = 1
+    const yTicks = 5
+    ctx.font = '10px ui-monospace, monospace'
+    ctx.fillStyle = '#a1a1aa'
+    ctx.textAlign = 'right'
+    for (let i = 0; i <= yTicks; i++) {
+      const yVal = (maxP / yTicks) * i
+      const y = toCanvasY(yVal)
+      ctx.beginPath()
+      ctx.moveTo(pad.left, y)
+      ctx.lineTo(w - pad.right, y)
+      ctx.stroke()
+      ctx.fillText(yVal.toFixed(3), pad.left - 6, y + 3)
+    }
+
+    // X-axis labels
+    ctx.textAlign = 'center'
+    const xTicks = 8
+    for (let i = 0; i <= xTicks; i++) {
+      const xVal = minX + ((maxX - minX) / xTicks) * i
+      const x = toCanvasX(xVal)
+      ctx.fillText(xVal.toFixed(1), x, h - pad.bottom + 14)
+    }
+
+    // Fill area under curve
+    const cc = CHART_COLORS[color]
+    ctx.beginPath()
+    ctx.moveTo(toCanvasX(table[0].x), toCanvasY(0))
+    for (const row of table) {
+      ctx.lineTo(toCanvasX(row.x), toCanvasY(row.px))
+    }
+    ctx.lineTo(toCanvasX(table[table.length - 1].x), toCanvasY(0))
+    ctx.closePath()
+    ctx.fillStyle = cc.bar + '80' // semi-transparent
+    ctx.fill()
+
+    // Draw curve line
+    ctx.beginPath()
+    ctx.moveTo(toCanvasX(table[0].x), toCanvasY(table[0].px))
+    for (const row of table) {
+      ctx.lineTo(toCanvasX(row.x), toCanvasY(row.px))
+    }
+    ctx.strokeStyle = cc.highlight
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    // Axis labels
+    ctx.fillStyle = '#a1a1aa'
+    ctx.font = 'italic 11px Georgia, serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('x', w / 2, h - 2)
+    ctx.save()
+    ctx.translate(12, pad.top + chartH / 2)
+    ctx.rotate(-Math.PI / 2)
+    ctx.fillText(yLabel, 0, 0)
+    ctx.restore()
+  }, [table, color, yLabel])
 
   return <canvas ref={canvasRef} className="w-full" style={{ height: 220 }} />
 }

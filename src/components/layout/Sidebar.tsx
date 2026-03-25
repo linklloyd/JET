@@ -22,7 +22,6 @@ import {
   BarChart3,
   Sigma,
   Shuffle,
-  SlidersHorizontal,
   X,
   ArrowDownNarrowWide,
   FlipHorizontal,
@@ -44,6 +43,7 @@ import {
   Scissors,
   Replace,
   Split,
+  Captions,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { HistoryPanel } from '../ui/HistoryPanel'
@@ -79,7 +79,10 @@ const defaultSections: Section[] = [
           { path: '/probability/binomial', label: 'Binomial', icon: BarChart3 },
           { path: '/probability/poisson', label: 'Poisson', icon: Sigma },
           { path: '/probability/hypergeometric', label: 'Hypergeometric', icon: Shuffle },
-          { path: '/probability/custom', label: 'Custom', icon: SlidersHorizontal },
+          { path: '/probability/normal', label: 'Normal', icon: BarChart3 },
+          { path: '/probability/tstudent', label: 'T-Student', icon: BarChart3 },
+          { path: '/probability/chi-square', label: 'Chi-Cuadrada', icon: BarChart3 },
+          { path: '/probability/fisher', label: 'Fisher (F)', icon: BarChart3 },
         ],
       },
       {
@@ -116,6 +119,7 @@ const defaultSections: Section[] = [
 
       { path: '/format-converter', label: 'Format Converter', icon: FileType },
       { path: '/video-to-gif', label: 'Video to GIF', icon: Video },
+      { path: '/video-subtitler', label: 'Video Subtitler', icon: Captions },
       { path: '/audio-waveform', label: 'Audio Waveform', icon: AudioWaveform },
     ],
   },
