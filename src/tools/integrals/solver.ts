@@ -705,7 +705,20 @@ function solveExpSubstitution(expr: string, variable: string, steps: IntegralSte
     })
 
     // Back-substitute u = exp(x)
-    const finalResult = cas.simplify(uSimplified.replace(/\bu\b/g, `exp(${variable})`))
+    let finalResult = cas.simplify(uSimplified.replace(/\bu\b/g, `exp(${variable})`))
+
+    // Post-process: simplify log expressions with exp(-x) terms
+    // log(1-exp(-x)) = log((exp(x)-1)/exp(x)) = log(exp(x)-1) - x
+    // log(1+exp(-x)) = log((exp(x)+1)/exp(x)) = log(exp(x)+1) - x
+    finalResult = finalResult
+      .replace(/log\(1-exp\(-(\w+)\)\)/g, (_, v) => `log(-1+exp(${v}))-${v}`)
+      .replace(/log\(1\+exp\(-(\w+)\)\)/g, (_, v) => `log(1+exp(${v}))-${v}`)
+      .replace(/-log\(1\+exp\(-(\w+)\)\)/g, (_, v) => `-log(1+exp(${v}))+${v}`)
+
+    // Re-simplify after manual substitution
+    try {
+      finalResult = cas.simplify(finalResult)
+    } catch { /* ignore */ }
 
     steps.push({
       label: 'Sustituir de vuelta',
