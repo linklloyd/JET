@@ -87,6 +87,13 @@ export function normalizeForCAS(input: string): string {
   const subMap: Record<string, string> = { '₀': '0', '₁': '1', '₂': '2', '₃': '3', '₄': '4', '₅': '5', '₆': '6', '₇': '7', '₈': '8', '₉': '9' }
   s = s.replace(/[₀₁₂₃₄₅₆₇₈₉]+/g, (match) => [...match].map((c) => subMap[c] || c).join(''))
 
+  // Convert e^(...) to exp(...) before implicit multiplication
+  // Handles: e^(x), e^(2x+1), e^(x^2)
+  // Must be done before implicit multiplication to avoid e^(x) → e*^(x)
+  s = s.replace(/\be\^(?:\(([^()]*(?:\([^()]*\))*[^()]*)\)|(\w))/g, (_match, parenContent, singleChar) => {
+    return `exp(${parenContent || singleChar})`
+  })
+
   // Implicit multiplication: 3x → 3*x, 2sin → 2*sin, )( → )*(, x( → x*(
   // digit followed by letter (not part of a function name)
   s = s.replace(/(\d)([a-zA-Z])/g, '$1*$2')
