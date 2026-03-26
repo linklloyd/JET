@@ -46,7 +46,9 @@ export function Spritesheet3DPage() {
   const [capturedBlob, setCapturedBlob] = useState<Blob | null>(null)
   const [textureFlipY, setTextureFlipY] = useState(true)
   const [isDraggingModel, setIsDraggingModel] = useState(false)
-  const [customDirCount, setCustomDirCount] = useState<4 | 8>(8)
+  const [customDirCount, setCustomDirCount] = useState<1 | 4 | 8>(8)
+  const [customSingleAngle, setCustomSingleAngle] = useState(0)
+  const [modelRotation, setModelRotation] = useState(0)
   const [savedPresets, setSavedPresets] = useState<SavedCustomPreset[]>([])
   const [savePresetName, setSavePresetName] = useState('')
   const [showSaveInput, setShowSaveInput] = useState(false)
@@ -54,9 +56,17 @@ export function Spritesheet3DPage() {
   // Load saved presets on mount
   useEffect(() => { setSavedPresets(loadSavedPresets()) }, [])
 
+  // Apply model rotation to the 3D scene
+  useEffect(() => {
+    if (modelRef.current) {
+      modelRef.current.rotation.y = (modelRotation * Math.PI) / 180
+    }
+  }, [modelRotation])
+
   // Build effective preset — for custom, use the direction count toggle
+  const customAngles = customDirCount === 1 ? [customSingleAngle] : customDirCount === 4 ? ANGLES_4 : ANGLES_8
   const currentPreset = presetKey === 'custom'
-    ? { ...presets.custom, angles: customDirCount === 4 ? ANGLES_4 : ANGLES_8 }
+    ? { ...presets.custom, angles: customAngles }
     : presets[presetKey]
 
   useEffect(() => { playingRef.current = playing }, [playing])
@@ -392,6 +402,10 @@ export function Spritesheet3DPage() {
     setCapturedImage(null)
     setCapturedBlob(null)
 
+    // Reset model rotation for capture, restore after
+    const savedRotY = model.rotation.y
+    model.rotation.y = 0
+
     const angles = currentPreset.angles
     const elev = presetKey === 'custom' ? elevation : currentPreset.elevation
     const clip = animations[selectedAnim]
@@ -471,6 +485,7 @@ export function Spritesheet3DPage() {
     }
 
     scene.add(model)
+    model.rotation.y = savedRotY
 
     if (mixer && clip) {
       mixer.stopAllAction()
@@ -663,22 +678,46 @@ export function Spritesheet3DPage() {
           </div>
 
           {modelLoaded && (
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-zinc-500">{modelInfo}</p>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-zinc-500">{modelInfo}</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleToggleFlipY}
+                    className="text-xs text-zinc-500 hover:text-zinc-700 flex items-center gap-1"
+                    title="Toggle UV flip direction if texture appears mirrored/inverted"
+                  >
+                    <FlipVertical size={11} /> Flip UV
+                  </button>
+                  <button
+                    onClick={() => textureInputRef.current?.click()}
+                    className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                  >
+                    <ImagePlus size={12} /> Apply Texture
+                  </button>
+                </div>
+              </div>
+              {/* Model rotation */}
               <div className="flex items-center gap-2">
-                <button
-                  onClick={handleToggleFlipY}
-                  className="text-xs text-zinc-500 hover:text-zinc-700 flex items-center gap-1"
-                  title="Toggle UV flip direction if texture appears mirrored/inverted"
-                >
-                  <FlipVertical size={11} /> Flip UV
-                </button>
-                <button
-                  onClick={() => textureInputRef.current?.click()}
-                  className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
-                >
-                  <ImagePlus size={12} /> Apply Texture
-                </button>
+                <span className="text-[11px] text-zinc-500 shrink-0">Rotate</span>
+                <input
+                  type="range"
+                  min={0} max={359} step={1}
+                  value={modelRotation}
+                  onChange={(e) => setModelRotation(Number(e.target.value))}
+                  className="flex-1 h-1 accent-zinc-700"
+                />
+                <input
+                  type="number"
+                  min={0} max={359}
+                  value={modelRotation}
+                  onChange={(e) => {
+                    const v = Math.max(0, Math.min(359, Number(e.target.value) || 0))
+                    setModelRotation(v)
+                  }}
+                  className="w-12 text-[11px] text-center px-1 py-0.5 border border-zinc-200 rounded focus:outline-none focus:border-blue-400"
+                />
+                <span className="text-[10px] text-zinc-400">°</span>
               </div>
             </div>
           )}
@@ -828,6 +867,7 @@ export function Spritesheet3DPage() {
                   if (sp) {
                     setPresetKey('custom')
                     setCustomDirCount(sp.directionCount)
+                    setCustomSingleAngle(sp.singleAngle ?? 0)
                     setElevation(sp.elevation)
                     setFrameCount(sp.frameCount)
                     setCaptureSize(sp.captureSize)
@@ -850,32 +890,49 @@ export function Spritesheet3DPage() {
               <>
                 {/* Direction count toggle */}
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-zinc-500">Directions</span>
+                  <span className="text-[11px] text-zinc-500 shrink-0">Dirs</span>
                   <div className="flex flex-1 rounded-md overflow-hidden border border-zinc-200">
-                    <button
-                      onClick={() => setCustomDirCount(4)}
-                      className={cn(
-                        'flex-1 text-[11px] font-medium py-1 transition-colors',
-                        customDirCount === 4
-                          ? 'bg-zinc-800 text-white'
-                          : 'bg-zinc-50 text-zinc-500 hover:bg-zinc-100'
-                      )}
-                    >
-                      4 dirs
-                    </button>
-                    <button
-                      onClick={() => setCustomDirCount(8)}
-                      className={cn(
-                        'flex-1 text-[11px] font-medium py-1 transition-colors',
-                        customDirCount === 8
-                          ? 'bg-zinc-800 text-white'
-                          : 'bg-zinc-50 text-zinc-500 hover:bg-zinc-100'
-                      )}
-                    >
-                      8 dirs
-                    </button>
+                    {([1, 4, 8] as const).map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => setCustomDirCount(n)}
+                        className={cn(
+                          'flex-1 text-[11px] font-medium py-1 transition-colors',
+                          customDirCount === n
+                            ? 'bg-zinc-800 text-white'
+                            : 'bg-zinc-50 text-zinc-500 hover:bg-zinc-100'
+                        )}
+                      >
+                        {n === 1 ? 'Single' : `${n}`}
+                      </button>
+                    ))}
                   </div>
                 </div>
+
+                {/* Single angle input — slider + number input */}
+                {customDirCount === 1 && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-zinc-500 shrink-0">Angle</span>
+                    <input
+                      type="range"
+                      min={0} max={359} step={1}
+                      value={customSingleAngle}
+                      onChange={(e) => setCustomSingleAngle(Number(e.target.value))}
+                      className="flex-1 h-1 accent-zinc-700"
+                    />
+                    <input
+                      type="number"
+                      min={0} max={359}
+                      value={customSingleAngle}
+                      onChange={(e) => {
+                        const v = Math.max(0, Math.min(359, Number(e.target.value) || 0))
+                        setCustomSingleAngle(v)
+                      }}
+                      className="w-12 text-[11px] text-center px-1 py-0.5 border border-zinc-200 rounded focus:outline-none focus:border-blue-400"
+                    />
+                    <span className="text-[10px] text-zinc-400">°</span>
+                  </div>
+                )}
 
                 <Slider
                   label="Elevation"
@@ -943,6 +1000,7 @@ export function Spritesheet3DPage() {
                             name: savePresetName.trim(),
                             elevation,
                             directionCount: customDirCount,
+                            singleAngle: customSingleAngle,
                             frameCount,
                             captureSize,
                             cameraDistance,
@@ -962,6 +1020,7 @@ export function Spritesheet3DPage() {
                           name: savePresetName.trim(),
                           elevation,
                           directionCount: customDirCount,
+                          singleAngle: customSingleAngle,
                           frameCount,
                           captureSize,
                           cameraDistance,
@@ -985,6 +1044,7 @@ export function Spritesheet3DPage() {
                         <button
                           onClick={() => {
                             setCustomDirCount(sp.directionCount)
+                            setCustomSingleAngle(sp.singleAngle ?? 0)
                             setElevation(sp.elevation)
                             setFrameCount(sp.frameCount)
                             setCaptureSize(sp.captureSize)
@@ -992,7 +1052,7 @@ export function Spritesheet3DPage() {
                             setBgColor(sp.bgColor)
                           }}
                           className="text-[11px] text-blue-600 hover:text-blue-700 font-medium truncate"
-                          title={`${sp.directionCount} dirs · ${sp.elevation}° · ${sp.frameCount}f · ${sp.captureSize}px`}
+                          title={`${sp.directionCount === 1 ? `${sp.singleAngle ?? 0}°` : `${sp.directionCount} dirs`} · ${sp.elevation}° elev · ${sp.frameCount}f · ${sp.captureSize}px`}
                         >
                           ★ {sp.name}
                         </button>

@@ -65,7 +65,8 @@ const STORAGE_KEY = 'jet-3d-custom-presets'
 export interface SavedCustomPreset {
   name: string
   elevation: number
-  directionCount: 4 | 8
+  directionCount: 1 | 4 | 8
+  singleAngle: number
   frameCount: number
   captureSize: number
   cameraDistance: number
