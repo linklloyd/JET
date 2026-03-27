@@ -24,6 +24,7 @@ export function Spritesheet3DPage() {
   const animFrameRef = useRef<number>(0)
   const playingRef = useRef(true)
   const modelUrlRef = useRef<string | null>(null)
+  const rootBoneRef = useRef<THREE.Bone | null>(null)
   const textureInputRef = useRef<HTMLInputElement>(null)
   const modelInputRef = useRef<HTMLInputElement>(null)
   const modelFormatRef = useRef<'fbx' | 'gltf'>('fbx')
@@ -148,6 +149,12 @@ export function Spritesheet3DPage() {
       const delta = clockRef.current.getDelta()
       if (mixerRef.current && playingRef.current) {
         mixerRef.current.update(delta)
+      }
+      // Follow the root bone so root-motion animations stay in view
+      if (rootBoneRef.current && modelRef.current) {
+        const worldPos = new THREE.Vector3()
+        rootBoneRef.current.getWorldPosition(worldPos)
+        controls.target.set(worldPos.x, worldPos.y, worldPos.z)
       }
       controls.update()
       renderer.render(scene, camera)
@@ -284,6 +291,14 @@ export function Spritesheet3DPage() {
 
     scene.add(wrapper)
     modelRef.current = wrapper
+
+    // Find the root bone (usually "Hips" in Mixamo) for camera follow
+    rootBoneRef.current = null
+    object.traverse((child) => {
+      if (!rootBoneRef.current && (child as THREE.Bone).isBone) {
+        rootBoneRef.current = child as THREE.Bone
+      }
+    })
 
     if (cameraRef.current && controlsRef.current) {
       cameraRef.current.position.set(0, 1.2, 4)
@@ -463,17 +478,28 @@ export function Spritesheet3DPage() {
       const angleRad = (angleDeg * Math.PI) / 180
       const elevRad = (elev * Math.PI) / 180
 
-      captureCamera.position.set(
-        cameraDistance * Math.sin(angleRad) * Math.cos(elevRad),
-        1 + cameraDistance * Math.sin(elevRad),
-        cameraDistance * Math.cos(angleRad) * Math.cos(elevRad)
-      )
-      captureCamera.lookAt(0, 1, 0)
-
       for (let frame = 0; frame < frameCount; frame++) {
         if (mixer && clip) {
           mixer.setTime((clip.duration * frame) / frameCount)
+          mixer.update(0) // force animation to apply
         }
+
+        // Force world matrix update so bone positions reflect the animation
+        model.updateMatrixWorld(true)
+
+        // Follow root bone position so root-motion animations stay centered
+        const followPos = new THREE.Vector3(0, 1, 0)
+        if (rootBoneRef.current) {
+          rootBoneRef.current.getWorldPosition(followPos)
+        }
+
+        captureCamera.position.set(
+          followPos.x + cameraDistance * Math.sin(angleRad) * Math.cos(elevRad),
+          followPos.y + cameraDistance * Math.sin(elevRad),
+          followPos.z + cameraDistance * Math.cos(angleRad) * Math.cos(elevRad)
+        )
+        captureCamera.lookAt(followPos)
+
         captureRenderer.render(captureScene, captureCamera)
         sheetCtx.drawImage(captureRenderer.domElement, frame * captureSize, angleIdx * captureSize)
 
