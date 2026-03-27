@@ -8,6 +8,8 @@ export type IntegrationTechnique =
   | 'direct'
   | 'sum-rule'
   | 'constant-multiple'
+  | 'exp-substitution'
+  | 'log-pattern'
 
 export type IntegralMethod =
   | 'indefinite'

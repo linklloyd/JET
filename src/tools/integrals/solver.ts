@@ -105,6 +105,12 @@ export function solveIntegral(
         case 'partial-fractions':
           antiderivative = solvePartialFractions(expr, variable, steps)
           break
+        case 'exp-substitution':
+          antiderivative = solveExpSubstitutionTechnique(expr, variable, steps)
+          break
+        case 'log-pattern':
+          antiderivative = solveLogPattern(expr, variable, steps)
+          break
         case 'direct':
         case 'trig-identity':
         case 'trig-substitution':
@@ -192,6 +198,12 @@ function detectTechnique(expr: string, variable: string, method: IntegralMethod)
   // These should use direct formula, not by-parts
   if (isPureExponential(expr, variable)) return 'direct'
 
+  // ★ Check for f'(x)/f(x) → ln|f(x)| pattern BEFORE other checks
+  if (isDerivativeOverFunction(expr, variable)) return 'log-pattern'
+
+  // ★ Check for rational expressions in exp(x): e^x/(e^x+1), (e^x-1)/(e^x+1), 1/(1+e^x)
+  if (isExpRational(expr, variable)) return 'exp-substitution'
+
   // Check for product of different classes → by parts
   if (isProductOfClasses(expr, variable)) return 'by-parts'
 
@@ -203,6 +215,69 @@ function detectTechnique(expr: string, variable: string, method: IntegralMethod)
 
   // Everything else: direct formula matching
   return 'direct'
+}
+
+/** Detect rational expressions involving exp: e^x/(e^x+1), 1/(1+e^x), (e^x-1)/(e^x+1) */
+function isExpRational(expr: string, variable: string): boolean {
+  const s = expr.replace(/\s/g, '')
+  if (!s.includes(variable)) return false
+  // Must have division and exp()
+  if (!s.includes('/')) return false
+  if (!/\bexp\(/.test(s) && !/e\^/.test(s)) return false
+  // Check: exp appears in numerator or denominator across a division
+  const parts = splitAtTopLevelChar(s, '/')
+  if (parts.length < 2) return false
+  const hasExpInAny = parts.some(p => /\bexp\(/.test(p) || /e\^/.test(p))
+  return hasExpInAny
+}
+
+/** Detect f'(x)/f(x) pattern → integral is ln|f(x)|
+ *  Strategy: extract numerator and denominator, check if numerator = k * derivative(denominator)
+ */
+function isDerivativeOverFunction(expr: string, variable: string): boolean {
+  const s = expr.replace(/\s/g, '')
+  if (!s.includes('/')) return false
+  // Split into numerator / denominator at top level
+  const slashIdx = findTopLevelSlash(s)
+  if (slashIdx < 0) return false
+  const num = s.slice(0, slashIdx).trim()
+  let den = s.slice(slashIdx + 1).trim()
+  // Remove outer parens from denominator if present
+  if (den.startsWith('(') && den.endsWith(')')) {
+    const inner = den.slice(1, -1)
+    if (isBalanced(inner)) den = inner
+  }
+  if (!den.includes(variable)) return false
+  try {
+    const derivDen = cas.derivative(den, variable)
+    // Check if num - derivDen simplifies to 0 (or is a constant multiple)
+    const diff = cas.simplify(`(${num}) - (${derivDen})`)
+    if (diff === '0') return true
+    // Check if num / derivDen is a constant (no variable)
+    const ratio = cas.simplify(`(${num}) / (${derivDen})`)
+    if (!ratio.includes(variable)) return true
+  } catch { /* ignore */ }
+  return false
+}
+
+function findTopLevelSlash(expr: string): number {
+  let depth = 0
+  for (let i = 0; i < expr.length; i++) {
+    if (expr[i] === '(' || expr[i] === '{') depth++
+    else if (expr[i] === ')' || expr[i] === '}') depth--
+    if (depth === 0 && expr[i] === '/') return i
+  }
+  return -1
+}
+
+function isBalanced(s: string): boolean {
+  let depth = 0
+  for (const ch of s) {
+    if (ch === '(') depth++
+    else if (ch === ')') depth--
+    if (depth < 0) return false
+  }
+  return depth === 0
 }
 
 function isPureExponential(expr: string, variable: string): boolean {
@@ -221,6 +296,15 @@ function isPureExponential(expr: string, variable: string): boolean {
 function isPolynomial(expr: string, variable: string): boolean {
   const cleaned = expr.replace(/\s/g, '')
   if (/\b(sin|cos|tan|ln|log|exp|sqrt|sec|csc|cot)\b/.test(cleaned)) return false
+  // Exclude expressions with division by the variable (rationals like x/(x+1), 1/(x-1))
+  if (cleaned.includes('/')) {
+    // Check if denominator contains the variable — if so, it's rational, not polynomial
+    const parts = splitAtTopLevelChar(cleaned, '/')
+    if (parts.length >= 2) {
+      const denom = parts.slice(1).join('/')
+      if (denom.includes(variable)) return false
+    }
+  }
   const re = new RegExp(`^[\\d.+\\-*/^${variable}()\\s]+$`)
   return re.test(cleaned)
 }
@@ -301,6 +385,16 @@ function extractBalancedParenFromExpr(s: string, start: number): { content: stri
   return null
 }
 
+/** CAS-based equivalence check: simplify(a - b) == 0 */
+function casEquals(a: string, b: string): boolean {
+  try {
+    const diff = cas.simplify(`(${a}) - (${b})`)
+    return diff === '0'
+  } catch {
+    return a.replace(/\s/g, '') === b.replace(/\s/g, '')
+  }
+}
+
 function detectFormulaForTerm(
   term: string,
   variable: string,
@@ -309,12 +403,12 @@ function detectFormulaForTerm(
   const v = variable
 
   // Formula 3: ∫du = u + C (just the variable itself, or "1")
-  if (t === v || t === '1') {
+  if (casEquals(t, v) || casEquals(t, '1')) {
     return { formulaId: 3 }
   }
 
   // Formula 5: ∫du/u = ln|u| + C  (term is 1/x or x^(-1))
-  if (t === `1/${v}` || t === `${v}^(-1)`) {
+  if (casEquals(t, `1/${v}`) || casEquals(t, `${v}^(-1)`)) {
     return { formulaId: 5 }
   }
   // Also check CAS: if degree is -1
@@ -351,35 +445,21 @@ function detectFormulaForTerm(
     return { formulaId: 6, substitutions: { a: baseExpMatch[1] } }
   }
 
-  // Formula 8: ∫sin(u) du
-  if (t === `sin(${v})`) return { formulaId: 8 }
+  // Formulas 8-13: Basic trig functions (use CAS equivalence for robustness)
+  if (casEquals(t, `sin(${v})`)) return { formulaId: 8 }
+  if (casEquals(t, `cos(${v})`)) return { formulaId: 9 }
+  if (casEquals(t, `tan(${v})`)) return { formulaId: 10 }
+  if (casEquals(t, `cot(${v})`)) return { formulaId: 11 }
+  if (casEquals(t, `sec(${v})`)) return { formulaId: 12 }
+  if (casEquals(t, `csc(${v})`)) return { formulaId: 13 }
 
-  // Formula 9: ∫cos(u) du
-  if (t === `cos(${v})`) return { formulaId: 9 }
+  // Formula 14-15: Trig squared
+  if (casEquals(t, `sec(${v})^2`) || casEquals(t, `sec(${v})*sec(${v})`)) return { formulaId: 14 }
+  if (casEquals(t, `csc(${v})^2`) || casEquals(t, `csc(${v})*csc(${v})`)) return { formulaId: 15 }
 
-  // Formula 10: ∫tan(u) du
-  if (t === `tan(${v})`) return { formulaId: 10 }
-
-  // Formula 11: ∫cot(u) du
-  if (t === `cot(${v})`) return { formulaId: 11 }
-
-  // Formula 12: ∫sec(u) du
-  if (t === `sec(${v})`) return { formulaId: 12 }
-
-  // Formula 13: ∫csc(u) du
-  if (t === `csc(${v})`) return { formulaId: 13 }
-
-  // Formula 14: ∫sec²(u) du
-  if (t === `sec(${v})^2` || t === `sec(${v})*sec(${v})`) return { formulaId: 14 }
-
-  // Formula 15: ∫csc²(u) du
-  if (t === `csc(${v})^2` || t === `csc(${v})*csc(${v})`) return { formulaId: 15 }
-
-  // Formula 16: ∫sec(u)·tan(u) du
-  if (t === `sec(${v})*tan(${v})` || t === `tan(${v})*sec(${v})`) return { formulaId: 16 }
-
-  // Formula 17: ∫csc(u)·cot(u) du
-  if (t === `csc(${v})*cot(${v})` || t === `cot(${v})*csc(${v})`) return { formulaId: 17 }
+  // Formula 16-17: Trig products (commutative)
+  if (casEquals(t, `sec(${v})*tan(${v})`) || casEquals(t, `tan(${v})*sec(${v})`)) return { formulaId: 16 }
+  if (casEquals(t, `csc(${v})*cot(${v})`) || casEquals(t, `cot(${v})*csc(${v})`)) return { formulaId: 17 }
 
   // Formula 4: ∫u^n du = u^(n+1)/(n+1) + C  (n ≠ -1)
   // This is the fallback for polynomial terms
@@ -733,6 +813,157 @@ function solveExpSubstitution(expr: string, variable: string, steps: IntegralSte
 }
 
 // ---------------------------------------------------------------------------
+// Log pattern solver: ∫ f'(x)/f(x) dx = ln|f(x)| + C
+// ---------------------------------------------------------------------------
+
+function solveLogPattern(expr: string, variable: string, steps: IntegralStep[]): string {
+  const s = expr.replace(/\s/g, '')
+  const slashIdx = findTopLevelSlash(s)
+  const num = s.slice(0, slashIdx).trim()
+  let den = s.slice(slashIdx + 1).trim()
+  // Remove outer parens
+  if (den.startsWith('(') && den.endsWith(')')) {
+    const inner = den.slice(1, -1)
+    if (isBalanced(inner)) den = inner
+  }
+
+  steps.push({
+    label: 'Identificar patrón f\'(x)/f(x)',
+    expression: `\\frac{f'(x)}{f(x)} \\text{ donde } f(${variable}) = ${formatExpression(den)}`,
+    description: 'Se identifica que el numerador es la derivada (o múltiplo) del denominador',
+  })
+
+  const derivDen = cas.derivative(den, variable)
+
+  steps.push({
+    label: 'Verificar derivada del denominador',
+    expression: `f'(${variable}) = ${formatExpression(derivDen)}`,
+    description: `Se calcula la derivada de f(${variable}) = ${formatExpression(den)}`,
+  })
+
+  // Check if numerator = k * derivative
+  let k = '1'
+  try {
+    const diff = cas.simplify(`(${num}) - (${derivDen})`)
+    if (diff === '0') {
+      k = '1'
+    } else {
+      k = cas.simplify(`(${num}) / (${derivDen})`)
+    }
+  } catch {
+    k = '1'
+  }
+
+  const f = getFormula(5) // ∫du/u = ln|u|
+  steps.push({
+    label: `Fórmula ${f.id}: ${f.name}`,
+    expression: f.formula,
+    description: 'Se aplica la fórmula ∫du/u = ln|u| + C con sustitución u = f(x)',
+  })
+
+  let result: string
+  if (k === '1') {
+    result = `log(abs(${den}))`
+    steps.push({
+      label: 'Resultado',
+      expression: `ln|${formatExpression(den)}|`,
+      description: 'Como el numerador es exactamente f\'(x), la integral es ln|f(x)|',
+    })
+  } else {
+    result = `(${k})*log(abs(${den}))`
+    steps.push({
+      label: 'Resultado',
+      expression: `${formatExpression(k)} · ln|${formatExpression(den)}|`,
+      description: `El numerador es ${formatExpression(k)} × f'(x), así que el resultado es ${formatExpression(k)} · ln|f(x)|`,
+    })
+  }
+
+  try {
+    return cas.simplify(result)
+  } catch {
+    return result
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Exp-substitution technique solver (elevated from manual fallback)
+// Handles: e^x/(e^x+1), (e^x-1)/(e^x+1), 1/(1+e^x), etc.
+// ---------------------------------------------------------------------------
+
+function solveExpSubstitutionTechnique(expr: string, variable: string, steps: IntegralStep[]): string {
+  // First try the log-pattern check on the expression
+  // Some exp-rationals like e^x/(e^x+1) are actually f'/f patterns
+  const s = expr.replace(/\s/g, '')
+  const slashIdx = findTopLevelSlash(s)
+  if (slashIdx > 0) {
+    const num = s.slice(0, slashIdx).trim()
+    let den = s.slice(slashIdx + 1).trim()
+    if (den.startsWith('(') && den.endsWith(')')) {
+      const inner = den.slice(1, -1)
+      if (isBalanced(inner)) den = inner
+    }
+    // Quick check: is numerator the derivative of denominator?
+    try {
+      const derivDen = cas.derivative(den, variable)
+      const diff = cas.simplify(`(${num}) - (${derivDen})`)
+      if (diff === '0') {
+        return solveLogPattern(expr, variable, steps)
+      }
+      // Check constant multiple
+      const ratio = cas.simplify(`(${num}) / (${derivDen})`)
+      if (!ratio.includes(variable)) {
+        return solveLogPattern(expr, variable, steps)
+      }
+    } catch { /* continue with exp sub */ }
+  }
+
+  // Try algebraic manipulation first: rewrite as simpler sum
+  // e.g., (e^x - 1)/(e^x + 1) = 1 - 2/(e^x + 1)
+  try {
+    const expanded = cas.run(`partfrac(${expr}, exp(${variable}))`)
+    if (expanded !== expr && expanded.includes('+') || expanded.includes('-')) {
+      // Check if Algebrite can directly solve the expanded form
+      const directResult = cas.integral(expanded, variable)
+      if (directResult && directResult !== 'Stop') {
+        const simplified = cas.simplify(directResult)
+
+        steps.push({
+          label: 'Reescribir la expresión',
+          expression: `${formatExpression(expr)} = ${formatExpression(expanded)}`,
+          description: 'Se reescribe la fracción mediante división algebraica',
+        })
+
+        steps.push({
+          label: 'Integrar cada término',
+          expression: `∫(${formatExpression(expanded)}) d${variable} = ${formatExpression(simplified)}`,
+          description: 'Se integra cada término por separado',
+        })
+
+        return simplified
+      }
+    }
+  } catch { /* continue with u-sub */ }
+
+  // Fall back to u = e^x substitution
+  const result = solveExpSubstitution(expr, variable, steps)
+  if (result) return result
+
+  // Last resort: CAS direct
+  try {
+    const direct = cas.integral(expr, variable)
+    const simplified = cas.simplify(direct)
+    steps.push({
+      label: 'Integración directa',
+      expression: `∫(${formatExpression(expr)}) d${variable} = ${formatExpression(simplified)}`,
+      description: 'Se aplica integración directa',
+    })
+    return simplified
+  } catch {
+    throw new Error('No se pudo resolver la integral con sustitución exponencial')
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Integration by Parts solver
 // ---------------------------------------------------------------------------
 
@@ -890,13 +1121,20 @@ function solveUSubstitution(expr: string, variable: string, steps: IntegralStep[
 }
 
 function detectInnerFunction(expr: string, variable: string): string | null {
-  const funcMatch = expr.match(/\b(?:sin|cos|tan|ln|log|exp)\(([^)]+)\)/)
+  // Match standard functions with non-trivial arguments: sin(2x), cos(x^2+1), exp(3x), ln(x^2)
+  const funcMatch = expr.match(/\b(?:sin|cos|tan|ln|log|exp|sec|csc|cot|sqrt)\(([^)]+)\)/)
   if (funcMatch && funcMatch[1].includes(variable) && funcMatch[1] !== variable) {
     return funcMatch[1]
   }
+  // Match (expr)^n patterns: (x^2+1)^5, (2x+1)^3
   const parenPowerMatch = expr.match(/\(([^)]+)\)\^/)
   if (parenPowerMatch && parenPowerMatch[1].includes(variable)) {
     return parenPowerMatch[1]
+  }
+  // Match e^(expr) patterns: e^(2x), e^(x^2)
+  const ePowerMatch = expr.match(/e\^\(([^)]+)\)/)
+  if (ePowerMatch && ePowerMatch[1].includes(variable) && ePowerMatch[1] !== variable) {
+    return ePowerMatch[1]
   }
   return null
 }
