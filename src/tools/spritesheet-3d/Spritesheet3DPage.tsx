@@ -416,7 +416,33 @@ export function Spritesheet3DPage() {
     return applyTextureToMesh(file, flipY)
   }, [applyTextureToMesh])
 
-  /** Add texture files to the pool and auto-match to meshes if possible */
+  /** Split a name into lowercase keywords for fuzzy matching */
+  const toKeywords = (name: string): string[] =>
+    name.replace(/\.[^.]+$/, '') // strip extension
+      .replace(/[_\-./\\]+/g, ' ') // separators → spaces
+      .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase split
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(w => w.length > 1 && !['the', 'and', 'for', 'map', 'tex', 'texture', 'diffuse', 'color', 'base', 'albedo', 'mat', 'material', '3d'].includes(w))
+
+  /** Score how well a texture name matches a mesh/material name (0 = no match) */
+  const matchScore = (texName: string, meshName: string, matName: string): number => {
+    const texWords = toKeywords(texName)
+    const meshWords = toKeywords(meshName)
+    const matWords = toKeywords(matName)
+    const targetWords = [...meshWords, ...matWords]
+    if (texWords.length === 0 || targetWords.length === 0) return 0
+    let score = 0
+    for (const tw of texWords) {
+      for (const mw of targetWords) {
+        if (tw === mw) score += 3 // exact word match
+        else if (mw.includes(tw) || tw.includes(mw)) score += 1 // substring
+      }
+    }
+    return score
+  }
+
+  /** Add texture files to the pool and auto-assign to meshes */
   const addTextureFiles = useCallback(async (files: File[]) => {
     const newMap = new Map(textureFiles)
     for (const f of files) {
@@ -424,35 +450,37 @@ export function Spritesheet3DPage() {
     }
     setTextureFiles(newMap)
 
-    // Auto-match: compare texture filename against mesh/material names
     const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
-    for (const file of files) {
-      const texName = file.name.replace(/\.[^.]+$/, '').toLowerCase()
-      let matched = false
-      for (const mi of meshInfos) {
-        const meshLower = mi.name.toLowerCase()
-        const matLower = mi.materialName.toLowerCase()
-        if (meshLower.includes(texName) || texName.includes(meshLower) ||
-            matLower.includes(texName) || texName.includes(matLower)) {
-          await applyTextureToMesh(file, defaultFlip, mi.name)
-          matched = true
-          break
-        }
-      }
-      // If only one mesh and one texture, apply directly
-      if (!matched && meshInfos.length === 1) {
+
+    if (meshInfos.length === 0) return
+
+    // If only one mesh, apply all textures to it (last one wins)
+    if (meshInfos.length === 1) {
+      for (const file of files) {
         await applyTextureToMesh(file, defaultFlip)
       }
+      return
     }
-    // If only one texture dropped and multiple meshes with no match, apply to all
-    if (files.length === 1 && meshInfos.length > 0) {
-      const texName = files[0].name.replace(/\.[^.]+$/, '').toLowerCase()
-      const anyMatch = meshInfos.some(mi =>
-        mi.name.toLowerCase().includes(texName) || texName.includes(mi.name.toLowerCase())
-      )
-      if (!anyMatch) {
-        await applyTextureToMesh(files[0], defaultFlip)
+
+    // Multiple meshes: try to auto-assign each texture to the best-matching mesh
+    const assigned = new Set<string>() // track which meshes got a texture
+    for (const file of files) {
+      let bestMesh: MeshInfo | null = null
+      let bestScore = 0
+      for (const mi of meshInfos) {
+        if (assigned.has(mi.name)) continue // skip already assigned
+        const s = matchScore(file.name, mi.name, mi.materialName)
+        if (s > bestScore) { bestScore = s; bestMesh = mi }
       }
+      if (bestMesh && bestScore > 0) {
+        await applyTextureToMesh(file, defaultFlip, bestMesh.name)
+        assigned.add(bestMesh.name)
+      }
+    }
+
+    // If no matches at all and only 1 texture, apply to all meshes
+    if (assigned.size === 0 && files.length === 1) {
+      await applyTextureToMesh(files[0], defaultFlip)
     }
   }, [textureFiles, meshInfos, applyTextureToMesh])
 
@@ -618,11 +646,7 @@ export function Spritesheet3DPage() {
     lastTextureFileRef.current = fileArr[0]
     const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
     setTextureFlipY(defaultFlip)
-    if (fileArr.length === 1) {
-      applyTexture(fileArr[0], defaultFlip)
-    } else {
-      addTextureFiles(fileArr)
-    }
+    addTextureFiles(fileArr)
     e.target.value = ''
   }
 
@@ -668,11 +692,7 @@ export function Spritesheet3DPage() {
       const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
       setTextureFlipY(defaultFlip)
       lastTextureFileRef.current = imageFiles[0]
-      if (imageFiles.length === 1) {
-        applyTexture(imageFiles[0], defaultFlip)
-      } else {
-        addTextureFiles(imageFiles)
-      }
+      addTextureFiles(imageFiles)
     }
   }, [loadModel, applyTexture, addTextureFiles])
 
