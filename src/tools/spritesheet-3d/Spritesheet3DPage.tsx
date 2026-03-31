@@ -7,10 +7,17 @@ import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
 import { Slider } from '../../components/ui/Slider'
 import { ProgressBar } from '../../components/ui/ProgressBar'
-import { Play, Pause, Camera, Loader2, ImagePlus, Download, FlipVertical, Upload, FolderOpen, Save, Trash2 } from 'lucide-react'
+import { Play, Pause, Camera, Loader2, ImagePlus, Download, FlipVertical, Upload, FolderOpen, Save, Trash2, X } from 'lucide-react'
 import { downloadBlob, canvasToBlob, fileToDataURL } from '../../lib/utils'
 import { presets, directionLabels, ANGLES_4, ANGLES_8, loadSavedPresets, savePreset, deletePreset, type SavedCustomPreset } from './presets'
 import { cn } from '../../lib/utils'
+
+interface MeshInfo {
+  name: string
+  materialName: string
+  hasTexture: boolean
+  assignedTexture?: string // filename of assigned texture
+}
 
 export function Spritesheet3DPage() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -53,6 +60,8 @@ export function Spritesheet3DPage() {
   const [savedPresets, setSavedPresets] = useState<SavedCustomPreset[]>([])
   const [savePresetName, setSavePresetName] = useState('')
   const [showSaveInput, setShowSaveInput] = useState(false)
+  const [meshInfos, setMeshInfos] = useState<MeshInfo[]>([])
+  const [textureFiles, setTextureFiles] = useState<Map<string, File>>(new Map())
 
   // Load saved presets on mount
   useEffect(() => { setSavedPresets(loadSavedPresets()) }, [])
@@ -209,6 +218,8 @@ export function Spritesheet3DPage() {
     setLoadError('')
     setCapturedImage(null)
     setCapturedBlob(null)
+    setMeshInfos([])
+    setTextureFiles(new Map())
   }, [])
 
   const loadModel = useCallback(async (file: File) => {
@@ -317,27 +328,39 @@ export function Spritesheet3DPage() {
 
     let vertCount = 0
     let hasTextures = false
+    const collectedMeshes: MeshInfo[] = []
+    let meshIdx = 0
     object.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const mesh = child as THREE.Mesh
         if (mesh.geometry) vertCount += mesh.geometry.attributes.position?.count ?? 0
         const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        let meshHasTex = false
+        let matName = ''
         mats.forEach((m: any) => {
-          if (m?.map) hasTextures = true
+          if (m?.map) { hasTextures = true; meshHasTex = true }
+          if (m?.name) matName = m.name
+        })
+        meshIdx++
+        collectedMeshes.push({
+          name: mesh.name || `Mesh ${meshIdx}`,
+          materialName: matName || `Material ${meshIdx}`,
+          hasTexture: meshHasTex,
         })
       }
     })
 
+    setMeshInfos(collectedMeshes)
     setModelInfo(
-      `${(vertCount / 1000).toFixed(1)}k verts | ${clips.length} anim${clips.length !== 1 ? 's' : ''} | ${hasTextures ? 'Textured' : 'No textures'}`
+      `${(vertCount / 1000).toFixed(1)}k verts | ${clips.length} anim${clips.length !== 1 ? 's' : ''} | ${collectedMeshes.length} mesh${collectedMeshes.length !== 1 ? 'es' : ''} | ${hasTextures ? 'Textured' : 'No textures'}`
     )
     setModelLoaded(true)
   }, [clearModel])
 
-  const applyTexture = useCallback(async (file: File, flipY?: boolean) => {
+  /** Apply a texture to a specific mesh by name, or to ALL meshes if meshName is undefined */
+  const applyTextureToMesh = useCallback(async (file: File, flipY?: boolean, meshName?: string) => {
     if (!modelRef.current) return
     const url = await fileToDataURL(file)
-
     const flip = flipY ?? textureFlipY
 
     return new Promise<void>((resolve) => {
@@ -349,14 +372,19 @@ export function Spritesheet3DPage() {
         texture.wrapT = THREE.RepeatWrapping
         texture.needsUpdate = true
 
+        let meshIdx = 0
         modelRef.current!.traverse((child) => {
           if (!(child as THREE.Mesh).isMesh) return
           const mesh = child as THREE.Mesh
-          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+          meshIdx++
+          const currentName = mesh.name || `Mesh ${meshIdx}`
 
+          // Skip if targeting a specific mesh and this isn't it
+          if (meshName && currentName !== meshName) return
+
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
           materials.forEach((mat, idx) => {
             if (!mat) return
-
             const newMat = new THREE.MeshStandardMaterial({
               map: texture,
               side: THREE.DoubleSide,
@@ -364,7 +392,6 @@ export function Spritesheet3DPage() {
               roughness: 0.7,
               color: new THREE.Color(0xffffff),
             })
-
             if (Array.isArray(mesh.material)) {
               (mesh.material as THREE.Material[])[idx] = newMat
             } else {
@@ -373,11 +400,61 @@ export function Spritesheet3DPage() {
           })
         })
 
+        // Update meshInfos to reflect the assignment
+        setMeshInfos(prev => prev.map(mi => {
+          if (meshName && mi.name !== meshName) return mi
+          return { ...mi, hasTexture: true, assignedTexture: file.name }
+        }))
         setModelInfo((prev) => prev.replace(/No textures|Textured.*/, 'Textured (applied)'))
         resolve()
       })
     })
   }, [textureFlipY])
+
+  /** Backward-compat wrapper: apply to all meshes */
+  const applyTexture = useCallback(async (file: File, flipY?: boolean) => {
+    return applyTextureToMesh(file, flipY)
+  }, [applyTextureToMesh])
+
+  /** Add texture files to the pool and auto-match to meshes if possible */
+  const addTextureFiles = useCallback(async (files: File[]) => {
+    const newMap = new Map(textureFiles)
+    for (const f of files) {
+      newMap.set(f.name, f)
+    }
+    setTextureFiles(newMap)
+
+    // Auto-match: compare texture filename against mesh/material names
+    const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
+    for (const file of files) {
+      const texName = file.name.replace(/\.[^.]+$/, '').toLowerCase()
+      let matched = false
+      for (const mi of meshInfos) {
+        const meshLower = mi.name.toLowerCase()
+        const matLower = mi.materialName.toLowerCase()
+        if (meshLower.includes(texName) || texName.includes(meshLower) ||
+            matLower.includes(texName) || texName.includes(matLower)) {
+          await applyTextureToMesh(file, defaultFlip, mi.name)
+          matched = true
+          break
+        }
+      }
+      // If only one mesh and one texture, apply directly
+      if (!matched && meshInfos.length === 1) {
+        await applyTextureToMesh(file, defaultFlip)
+      }
+    }
+    // If only one texture dropped and multiple meshes with no match, apply to all
+    if (files.length === 1 && meshInfos.length > 0) {
+      const texName = files[0].name.replace(/\.[^.]+$/, '').toLowerCase()
+      const anyMatch = meshInfos.some(mi =>
+        mi.name.toLowerCase().includes(texName) || texName.includes(mi.name.toLowerCase())
+      )
+      if (!anyMatch) {
+        await applyTextureToMesh(files[0], defaultFlip)
+      }
+    }
+  }, [textureFiles, meshInfos, applyTextureToMesh])
 
   const handleToggleFlipY = useCallback(async () => {
     const newFlip = !textureFlipY
@@ -536,11 +613,15 @@ export function Spritesheet3DPage() {
   const lastTextureFileRef = useRef<File | null>(null)
   const handleTextureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
-    if (files?.[0]) {
-      lastTextureFileRef.current = files[0]
-      const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
-      setTextureFlipY(defaultFlip)
-      applyTexture(files[0], defaultFlip)
+    if (!files || files.length === 0) return
+    const fileArr = Array.from(files)
+    lastTextureFileRef.current = fileArr[0]
+    const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
+    setTextureFlipY(defaultFlip)
+    if (fileArr.length === 1) {
+      applyTexture(fileArr[0], defaultFlip)
+    } else {
+      addTextureFiles(fileArr)
     }
     e.target.value = ''
   }
@@ -570,22 +651,30 @@ export function Spritesheet3DPage() {
     e.stopPropagation()
     setIsDraggingModel(false)
     const files = Array.from(e.dataTransfer.files)
-    if (files.length > 0) {
-      const file = files[0]
-      const ext = file.name.split('.').pop()?.toLowerCase()
-      if (ext === 'fbx' || ext === 'glb' || ext === 'gltf') {
-        loadModel(file)
-      } else if (file.type.startsWith('image/')) {
-        // If it's an image, treat it as a texture
-        if (modelRef.current) {
-          lastTextureFileRef.current = file
-          const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
-          setTextureFlipY(defaultFlip)
-          applyTexture(file, defaultFlip)
-        }
+    if (files.length === 0) return
+
+    // Separate model files from image files
+    const modelFile = files.find(f => {
+      const ext = f.name.split('.').pop()?.toLowerCase()
+      return ext === 'fbx' || ext === 'glb' || ext === 'gltf'
+    })
+    const imageFiles = files.filter(f => f.type.startsWith('image/'))
+
+    if (modelFile) {
+      loadModel(modelFile)
+    }
+
+    if (imageFiles.length > 0 && modelRef.current) {
+      const defaultFlip = modelFormatRef.current === 'fbx' ? true : false
+      setTextureFlipY(defaultFlip)
+      lastTextureFileRef.current = imageFiles[0]
+      if (imageFiles.length === 1) {
+        applyTexture(imageFiles[0], defaultFlip)
+      } else {
+        addTextureFiles(imageFiles)
       }
     }
-  }, [loadModel, applyTexture])
+  }, [loadModel, applyTexture, addTextureFiles])
 
   return (
     <div className="space-y-6">
@@ -637,6 +726,7 @@ export function Spritesheet3DPage() {
                       ref={textureInputRef}
                       type="file"
                       accept="image/*"
+                      multiple
                       onChange={handleTextureUpload}
                       className="hidden"
                     />
@@ -849,6 +939,72 @@ export function Spritesheet3DPage() {
                 <FlipVertical size={11} /> Flip UV
               </button>
             </div>
+
+            {/* Texture pool & per-mesh assignment */}
+            {modelLoaded && textureFiles.size > 0 && (
+              <div className="space-y-1.5 pt-1.5 border-t border-zinc-100">
+                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">Textures</p>
+                <div className="space-y-0.5">
+                  {Array.from(textureFiles.entries()).map(([name]) => (
+                    <div key={name} className="flex items-center justify-between group text-[11px]">
+                      <span className="text-zinc-600 truncate flex-1" title={name}>{name}</span>
+                      <button
+                        onClick={() => {
+                          const next = new Map(textureFiles)
+                          next.delete(name)
+                          setTextureFiles(next)
+                          // Clear assignment from meshes using this texture
+                          setMeshInfos(prev => prev.map(mi =>
+                            mi.assignedTexture === name ? { ...mi, assignedTexture: undefined } : mi
+                          ))
+                        }}
+                        className="text-zinc-300 hover:text-red-500 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {modelLoaded && meshInfos.length > 1 && (
+              <div className="space-y-1.5 pt-1.5 border-t border-zinc-100">
+                <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wide">Assign to Meshes</p>
+                <div className="space-y-1">
+                  {meshInfos.map((mi) => (
+                    <div key={mi.name} className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-zinc-500 truncate min-w-0 flex-1" title={`${mi.name} (${mi.materialName})`}>
+                        {mi.name}
+                      </span>
+                      <select
+                        value={mi.assignedTexture || ''}
+                        onChange={async (e) => {
+                          const texName = e.target.value
+                          if (!texName) {
+                            // Clear assignment — no easy way to "un-texture" without reloading, just update state
+                            setMeshInfos(prev => prev.map(m =>
+                              m.name === mi.name ? { ...m, assignedTexture: undefined } : m
+                            ))
+                            return
+                          }
+                          const file = textureFiles.get(texName)
+                          if (file) {
+                            await applyTextureToMesh(file, textureFlipY, mi.name)
+                          }
+                        }}
+                        className="text-[10px] bg-zinc-50 border border-zinc-200 rounded px-1 py-0.5 max-w-[120px]"
+                      >
+                        <option value="">None</option>
+                        {Array.from(textureFiles.keys()).map(name => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Animation */}
