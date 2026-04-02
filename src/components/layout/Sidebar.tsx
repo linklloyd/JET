@@ -43,7 +43,6 @@ import {
   Scissors,
   Replace,
   Split,
-  Captions,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { HistoryPanel } from '../ui/HistoryPanel'
@@ -119,7 +118,6 @@ const defaultSections: Section[] = [
 
       { path: '/format-converter', label: 'Format Converter', icon: FileType },
       { path: '/video-to-gif', label: 'Video to GIF', icon: Video },
-      { path: '/video-subtitler', label: 'Video Subtitler', icon: Captions },
       { path: '/audio-waveform', label: 'Audio Waveform', icon: AudioWaveform },
     ],
   },
