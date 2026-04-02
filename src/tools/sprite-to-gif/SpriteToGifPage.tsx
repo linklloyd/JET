@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
 import { Slider } from '../../components/ui/Slider'
-import { Download, Play, Pause, Loader2, ArrowRightLeft } from 'lucide-react'
+import { Download, Play, Pause, Loader2, ArrowRightLeft, GripVertical, Trash2 } from 'lucide-react'
 import { fileToDataURL, loadImage, downloadBlob } from '../../lib/utils'
 import { encodeGif } from '../../lib/gif-encoder'
 import { decodeGifFrames, type GifFrame } from '../../lib/gif-decoder'
@@ -35,16 +35,15 @@ export function SpriteToGifPage() {
   const [separateGifs, setSeparateGifs] = useState<GeneratedGif[]>([])
   // GIF-to-Sprite state
   const [gifFrames, setGifFrames] = useState<GifFrame[]>([])
+  const [frameOrder, setFrameOrder] = useState<number[]>([]) // indices into gifFrames
   const [gifWidth, setGifWidth] = useState(0)
   const [gifHeight, setGifHeight] = useState(0)
   const [sheetCols, setSheetCols] = useState(8)
   const [sheetUrl, setSheetUrl] = useState<string | null>(null)
   const [sheetBlob, setSheetBlob] = useState<Blob | null>(null)
-  const [gifPreviewFrame, setGifPreviewFrame] = useState(0)
-  const [gifPlaying, setGifPlaying] = useState(true)
-  const gifCanvasRef = useRef<HTMLCanvasElement>(null)
-  const gifAnimRef = useRef<number>(0)
-  const gifLastTimeRef = useRef(0)
+  const [frameThumbs, setFrameThumbs] = useState<string[]>([]) // data URLs per frame
+  const [dragIdx, setDragIdx] = useState<number | null>(null)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef = useRef<number>(0)
@@ -216,27 +215,37 @@ export function SpriteToGifPage() {
     setGifFrames(frames)
     setGifWidth(width)
     setGifHeight(height)
-    setGifPreviewFrame(0)
     setSheetUrl(null)
     setSheetBlob(null)
-    // Auto columns: try to fit roughly square
+    setFrameOrder(frames.map((_, i) => i))
+    // Generate thumbnails for each frame
+    const thumbs: string[] = []
+    const tc = document.createElement('canvas')
+    tc.width = width
+    tc.height = height
+    const tctx = tc.getContext('2d')!
+    for (const frame of frames) {
+      tctx.putImageData(frame.imageData, 0, 0)
+      thumbs.push(tc.toDataURL())
+    }
+    setFrameThumbs(thumbs)
     const autoCols = Math.min(frames.length, Math.ceil(Math.sqrt(frames.length)))
     setSheetCols(autoCols)
   }
 
   const handleGenerateSheet = async () => {
-    if (gifFrames.length === 0) return
+    if (frameOrder.length === 0) return
     setGenerating(true)
-    const c = Math.min(sheetCols, gifFrames.length)
-    const r = Math.ceil(gifFrames.length / c)
+    const c = Math.min(sheetCols, frameOrder.length)
+    const r = Math.ceil(frameOrder.length / c)
     const canvas = document.createElement('canvas')
     canvas.width = gifWidth * c
     canvas.height = gifHeight * r
     const ctx = canvas.getContext('2d')!
-    for (let i = 0; i < gifFrames.length; i++) {
+    for (let i = 0; i < frameOrder.length; i++) {
       const col = i % c
       const row = Math.floor(i / c)
-      ctx.putImageData(gifFrames[i].imageData, col * gifWidth, row * gifHeight)
+      ctx.putImageData(gifFrames[frameOrder[i]].imageData, col * gifWidth, row * gifHeight)
     }
     const blob = await canvasToBlob(canvas)
     if (sheetUrl) URL.revokeObjectURL(sheetUrl)
@@ -247,34 +256,26 @@ export function SpriteToGifPage() {
 
   const handleDownloadSheet = () => {
     if (!sheetBlob) return
-    downloadBlob(sheetBlob, `spritesheet_${sheetCols}x${Math.ceil(gifFrames.length / sheetCols)}.png`)
+    downloadBlob(sheetBlob, `spritesheet_${sheetCols}x${Math.ceil(frameOrder.length / sheetCols)}.png`)
   }
 
-  // GIF preview animation
-  const animateGif = useCallback((time: number) => {
-    if (!gifCanvasRef.current || gifFrames.length === 0 || !gifPlaying) {
-      gifAnimRef.current = requestAnimationFrame(animateGif)
-      return
-    }
-    const frame = gifFrames[gifPreviewFrame % gifFrames.length]
-    const interval = frame.delay * 10 // GIF delay is in centiseconds
-    if (time - gifLastTimeRef.current >= interval) {
-      gifLastTimeRef.current = time
-      const canvas = gifCanvasRef.current
-      canvas.width = gifWidth
-      canvas.height = gifHeight
-      const ctx = canvas.getContext('2d')!
-      ctx.putImageData(frame.imageData, 0, 0)
-      setGifPreviewFrame((prev) => (prev + 1) % gifFrames.length)
-    }
-    gifAnimRef.current = requestAnimationFrame(animateGif)
-  }, [gifFrames, gifPlaying, gifPreviewFrame, gifWidth, gifHeight])
-
-  useEffect(() => {
-    if (mode !== 'gif-to-sprite') return
-    gifAnimRef.current = requestAnimationFrame(animateGif)
-    return () => cancelAnimationFrame(gifAnimRef.current)
-  }, [animateGif, mode])
+  const handleFrameDragStart = (idx: number) => setDragIdx(idx)
+  const handleFrameDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault()
+    setDragOverIdx(idx)
+  }
+  const handleFrameDrop = (idx: number) => {
+    if (dragIdx === null || dragIdx === idx) { setDragIdx(null); setDragOverIdx(null); return }
+    const newOrder = [...frameOrder]
+    const [moved] = newOrder.splice(dragIdx, 1)
+    newOrder.splice(idx, 0, moved)
+    setFrameOrder(newOrder)
+    setDragIdx(null)
+    setDragOverIdx(null)
+  }
+  const handleRemoveFrame = (idx: number) => {
+    setFrameOrder(prev => prev.filter((_, i) => i !== idx))
+  }
 
   return (
     <div className="space-y-6">
@@ -316,61 +317,111 @@ export function SpriteToGifPage() {
         <>
           <FileDropzone onFiles={handleGifFile} accept="image/gif" label="Drop a GIF file here" />
 
-          {gifFrames.length > 0 && (
-            <div className="grid grid-cols-[1fr_260px] gap-6">
-              <div className="space-y-4">
-                <PreviewCanvas
-                  label={`GIF Preview (frame ${(gifPreviewFrame % gifFrames.length) + 1}/${gifFrames.length})`}
-                  maxHeight={280}
-                  minHeight={100}
-                  actions={
-                    <button onClick={() => setGifPlaying(!gifPlaying)} className="text-zinc-400 hover:text-zinc-600">
-                      {gifPlaying ? <Pause size={16} /> : <Play size={16} />}
-                    </button>
-                  }
-                >
-                  <canvas ref={gifCanvasRef} style={{ imageRendering: 'pixelated' }} />
-                </PreviewCanvas>
-
-                {sheetUrl && (
-                  <PreviewCanvas
-                    label={`Spritesheet (${sheetCols}×${Math.ceil(gifFrames.length / sheetCols)})`}
-                    maxHeight={400}
-                    minHeight={100}
-                    actions={
-                      <Button onClick={handleDownloadSheet} size="sm">
-                        <Download size={12} /> Download PNG
-                      </Button>
-                    }
-                  >
-                    <img src={sheetUrl} alt="Generated spritesheet" style={{ imageRendering: 'pixelated' }} className="max-w-full" />
-                  </PreviewCanvas>
-                )}
+          {frameOrder.length > 0 && (
+            <div className="space-y-4">
+              {/* Frame grid — draggable to reorder */}
+              <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">
+                    Frames ({frameOrder.length})
+                  </p>
+                  <p className="text-[10px] text-zinc-400">Drag to reorder · Click × to remove</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {frameOrder.map((frameIdx, i) => (
+                    <div
+                      key={`${frameIdx}-${i}`}
+                      draggable
+                      onDragStart={() => handleFrameDragStart(i)}
+                      onDragOver={(e) => handleFrameDragOver(e, i)}
+                      onDrop={() => handleFrameDrop(i)}
+                      onDragEnd={() => { setDragIdx(null); setDragOverIdx(null) }}
+                      className={cn(
+                        'relative group border rounded-lg overflow-hidden cursor-grab active:cursor-grabbing transition-all',
+                        dragOverIdx === i ? 'border-blue-400 ring-2 ring-blue-200' : 'border-zinc-200 hover:border-zinc-300',
+                        dragIdx === i ? 'opacity-40' : ''
+                      )}
+                    >
+                      <div className="bg-zinc-100 p-1" style={{
+                        backgroundImage: 'repeating-conic-gradient(#e4e4e7 0% 25%, #f4f4f5 0% 50%)',
+                        backgroundSize: '8px 8px',
+                      }}>
+                        <img
+                          src={frameThumbs[frameIdx]}
+                          alt={`Frame ${i + 1}`}
+                          className="block"
+                          style={{ width: Math.min(80, gifWidth), height: Math.min(80, gifHeight), imageRendering: 'pixelated', objectFit: 'contain' }}
+                        />
+                      </div>
+                      <div className="absolute top-0 left-0 bg-black/50 text-white text-[9px] px-1 rounded-br">
+                        {i + 1}
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRemoveFrame(i) }}
+                        className="absolute top-0 right-0 bg-black/50 text-white p-0.5 rounded-bl opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 text-zinc-400 opacity-0 group-hover:opacity-60 transition-opacity">
+                        <GripVertical size={10} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              <div className="space-y-4">
-                <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
-                  <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Spritesheet Layout</p>
-                  <label className="space-y-1">
-                    <span className="text-xs font-medium text-zinc-600">Columns</span>
-                    <input type="number" min={1} max={gifFrames.length} value={sheetCols}
-                      onChange={(e) => setSheetCols(Math.max(1, Math.min(gifFrames.length, +e.target.value)))}
-                      className="w-full rounded-lg border border-zinc-200 px-3 py-1.5 text-sm" />
-                  </label>
-                  <p className="text-xs text-zinc-500">
-                    {gifFrames.length} frames · {gifWidth}×{gifHeight}px each
-                    <br />
-                    Sheet: {gifWidth * Math.min(sheetCols, gifFrames.length)}×{gifHeight * Math.ceil(gifFrames.length / sheetCols)}px
-                  </p>
+              {/* Controls & output */}
+              <div className="grid grid-cols-[1fr_260px] gap-6">
+                <div className="space-y-4">
+                  {sheetUrl && (
+                    <PreviewCanvas
+                      label={`Spritesheet (${Math.min(sheetCols, frameOrder.length)}×${Math.ceil(frameOrder.length / sheetCols)})`}
+                      maxHeight={400}
+                      minHeight={100}
+                      actions={
+                        <Button onClick={handleDownloadSheet} size="sm">
+                          <Download size={12} /> Download PNG
+                        </Button>
+                      }
+                    >
+                      <img src={sheetUrl} alt="Generated spritesheet" style={{ imageRendering: 'pixelated' }} className="max-w-full" />
+                    </PreviewCanvas>
+                  )}
                 </div>
 
-                <Button onClick={handleGenerateSheet} disabled={generating} className="w-full">
-                  {generating ? (
-                    <><Loader2 size={16} className="animate-spin" /> Generating...</>
-                  ) : (
-                    <><ArrowRightLeft size={16} /> Generate Spritesheet</>
+                <div className="space-y-4">
+                  <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
+                    <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Spritesheet Layout</p>
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium text-zinc-600">Columns</span>
+                      <input type="number" min={1} max={frameOrder.length} value={sheetCols}
+                        onChange={(e) => setSheetCols(Math.max(1, Math.min(frameOrder.length, +e.target.value)))}
+                        className="w-full rounded-lg border border-zinc-200 px-3 py-1.5 text-sm" />
+                    </label>
+                    <p className="text-xs text-zinc-500">
+                      {frameOrder.length} frames · {gifWidth}×{gifHeight}px each
+                      <br />
+                      Sheet: {gifWidth * Math.min(sheetCols, frameOrder.length)}×{gifHeight * Math.ceil(frameOrder.length / sheetCols)}px
+                    </p>
+                  </div>
+
+                  <Button onClick={handleGenerateSheet} disabled={generating || frameOrder.length === 0} className="w-full">
+                    {generating ? (
+                      <><Loader2 size={16} className="animate-spin" /> Generating...</>
+                    ) : (
+                      <><ArrowRightLeft size={16} /> Generate Spritesheet</>
+                    )}
+                  </Button>
+
+                  {frameOrder.length < gifFrames.length && (
+                    <button
+                      onClick={() => setFrameOrder(gifFrames.map((_, i) => i))}
+                      className="text-xs text-blue-600 hover:text-blue-700 font-medium w-full text-center"
+                    >
+                      Reset all frames ({gifFrames.length})
+                    </button>
                   )}
-                </Button>
+                </div>
               </div>
             </div>
           )}
