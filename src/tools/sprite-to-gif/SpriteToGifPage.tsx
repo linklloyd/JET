@@ -2,11 +2,15 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
 import { Slider } from '../../components/ui/Slider'
-import { Download, Play, Pause, Loader2 } from 'lucide-react'
+import { Download, Play, Pause, Loader2, ArrowRightLeft } from 'lucide-react'
 import { fileToDataURL, loadImage, downloadBlob } from '../../lib/utils'
 import { encodeGif } from '../../lib/gif-encoder'
+import { decodeGifFrames, type GifFrame } from '../../lib/gif-decoder'
 import { PreviewCanvas } from '../../components/ui/PreviewCanvas'
+import { cn } from '../../lib/utils'
+import { canvasToBlob } from '../../lib/utils'
 
+type PageMode = 'sprite-to-gif' | 'gif-to-sprite'
 type SeparateMode = 'none' | 'rows' | 'cols'
 
 interface GeneratedGif {
@@ -16,6 +20,7 @@ interface GeneratedGif {
 }
 
 export function SpriteToGifPage() {
+  const [mode, setMode] = useState<PageMode>('sprite-to-gif')
   const [image, setImage] = useState<HTMLImageElement | null>(null)
   const [cols, setCols] = useState(4)
   const [rows, setRows] = useState(1)
@@ -28,6 +33,19 @@ export function SpriteToGifPage() {
   const [gifBlob, setGifBlob] = useState<Blob | null>(null)
   const [gifUrl, setGifUrl] = useState<string | null>(null)
   const [separateGifs, setSeparateGifs] = useState<GeneratedGif[]>([])
+  // GIF-to-Sprite state
+  const [gifFrames, setGifFrames] = useState<GifFrame[]>([])
+  const [gifWidth, setGifWidth] = useState(0)
+  const [gifHeight, setGifHeight] = useState(0)
+  const [sheetCols, setSheetCols] = useState(8)
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null)
+  const [sheetBlob, setSheetBlob] = useState<Blob | null>(null)
+  const [gifPreviewFrame, setGifPreviewFrame] = useState(0)
+  const [gifPlaying, setGifPlaying] = useState(true)
+  const gifCanvasRef = useRef<HTMLCanvasElement>(null)
+  const gifAnimRef = useRef<number>(0)
+  const gifLastTimeRef = useRef(0)
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef = useRef<number>(0)
   const lastTimeRef = useRef(0)
@@ -188,13 +206,180 @@ export function SpriteToGifPage() {
     downloadBlob(blob, 'animations.zip')
   }
 
+  // --- GIF-to-Sprite handlers ---
+  const handleGifFile = async (files: File[]) => {
+    const file = files[0]
+    const arrayBuf = await file.arrayBuffer()
+    const data = new Uint8Array(arrayBuf)
+    const { frames, width, height } = decodeGifFrames(data)
+    if (frames.length === 0) return
+    setGifFrames(frames)
+    setGifWidth(width)
+    setGifHeight(height)
+    setGifPreviewFrame(0)
+    setSheetUrl(null)
+    setSheetBlob(null)
+    // Auto columns: try to fit roughly square
+    const autoCols = Math.min(frames.length, Math.ceil(Math.sqrt(frames.length)))
+    setSheetCols(autoCols)
+  }
+
+  const handleGenerateSheet = async () => {
+    if (gifFrames.length === 0) return
+    setGenerating(true)
+    const c = Math.min(sheetCols, gifFrames.length)
+    const r = Math.ceil(gifFrames.length / c)
+    const canvas = document.createElement('canvas')
+    canvas.width = gifWidth * c
+    canvas.height = gifHeight * r
+    const ctx = canvas.getContext('2d')!
+    for (let i = 0; i < gifFrames.length; i++) {
+      const col = i % c
+      const row = Math.floor(i / c)
+      ctx.putImageData(gifFrames[i].imageData, col * gifWidth, row * gifHeight)
+    }
+    const blob = await canvasToBlob(canvas)
+    if (sheetUrl) URL.revokeObjectURL(sheetUrl)
+    setSheetBlob(blob)
+    setSheetUrl(URL.createObjectURL(blob))
+    setGenerating(false)
+  }
+
+  const handleDownloadSheet = () => {
+    if (!sheetBlob) return
+    downloadBlob(sheetBlob, `spritesheet_${sheetCols}x${Math.ceil(gifFrames.length / sheetCols)}.png`)
+  }
+
+  // GIF preview animation
+  const animateGif = useCallback((time: number) => {
+    if (!gifCanvasRef.current || gifFrames.length === 0 || !gifPlaying) {
+      gifAnimRef.current = requestAnimationFrame(animateGif)
+      return
+    }
+    const frame = gifFrames[gifPreviewFrame % gifFrames.length]
+    const interval = frame.delay * 10 // GIF delay is in centiseconds
+    if (time - gifLastTimeRef.current >= interval) {
+      gifLastTimeRef.current = time
+      const canvas = gifCanvasRef.current
+      canvas.width = gifWidth
+      canvas.height = gifHeight
+      const ctx = canvas.getContext('2d')!
+      ctx.putImageData(frame.imageData, 0, 0)
+      setGifPreviewFrame((prev) => (prev + 1) % gifFrames.length)
+    }
+    gifAnimRef.current = requestAnimationFrame(animateGif)
+  }, [gifFrames, gifPlaying, gifPreviewFrame, gifWidth, gifHeight])
+
+  useEffect(() => {
+    if (mode !== 'gif-to-sprite') return
+    gifAnimRef.current = requestAnimationFrame(animateGif)
+    return () => cancelAnimationFrame(gifAnimRef.current)
+  }, [animateGif, mode])
+
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-zinc-900">Spritesheet to GIF</h2>
-        <p className="text-sm text-zinc-500 mt-2">Convert a spritesheet into an animated GIF</p>
+        <h2 className="text-2xl font-bold text-zinc-900">
+          {mode === 'sprite-to-gif' ? 'Spritesheet to GIF' : 'GIF to Spritesheet'}
+        </h2>
+        <p className="text-sm text-zinc-500 mt-2">
+          {mode === 'sprite-to-gif'
+            ? 'Convert a spritesheet into an animated GIF'
+            : 'Extract frames from a GIF and compose a spritesheet'}
+        </p>
       </div>
 
+      {/* Mode toggle */}
+      <div className="flex rounded-lg border border-zinc-200 overflow-hidden w-fit">
+        <button
+          onClick={() => setMode('sprite-to-gif')}
+          className={cn(
+            'px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2',
+            mode === 'sprite-to-gif' ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
+          )}
+        >
+          Sprite → GIF
+        </button>
+        <button
+          onClick={() => setMode('gif-to-sprite')}
+          className={cn(
+            'px-4 py-2 text-sm font-medium transition-colors flex items-center gap-2',
+            mode === 'gif-to-sprite' ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
+          )}
+        >
+          GIF → Sprite
+        </button>
+      </div>
+
+      {/* GIF-to-Sprite mode */}
+      {mode === 'gif-to-sprite' && (
+        <>
+          <FileDropzone onFiles={handleGifFile} accept="image/gif" label="Drop a GIF file here" />
+
+          {gifFrames.length > 0 && (
+            <div className="grid grid-cols-[1fr_260px] gap-6">
+              <div className="space-y-4">
+                <PreviewCanvas
+                  label={`GIF Preview (frame ${(gifPreviewFrame % gifFrames.length) + 1}/${gifFrames.length})`}
+                  maxHeight={280}
+                  minHeight={100}
+                  actions={
+                    <button onClick={() => setGifPlaying(!gifPlaying)} className="text-zinc-400 hover:text-zinc-600">
+                      {gifPlaying ? <Pause size={16} /> : <Play size={16} />}
+                    </button>
+                  }
+                >
+                  <canvas ref={gifCanvasRef} style={{ imageRendering: 'pixelated' }} />
+                </PreviewCanvas>
+
+                {sheetUrl && (
+                  <PreviewCanvas
+                    label={`Spritesheet (${sheetCols}×${Math.ceil(gifFrames.length / sheetCols)})`}
+                    maxHeight={400}
+                    minHeight={100}
+                    actions={
+                      <Button onClick={handleDownloadSheet} size="sm">
+                        <Download size={12} /> Download PNG
+                      </Button>
+                    }
+                  >
+                    <img src={sheetUrl} alt="Generated spritesheet" style={{ imageRendering: 'pixelated' }} className="max-w-full" />
+                  </PreviewCanvas>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <div className="bg-white border border-zinc-200 rounded-lg p-4 space-y-3">
+                  <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Spritesheet Layout</p>
+                  <label className="space-y-1">
+                    <span className="text-xs font-medium text-zinc-600">Columns</span>
+                    <input type="number" min={1} max={gifFrames.length} value={sheetCols}
+                      onChange={(e) => setSheetCols(Math.max(1, Math.min(gifFrames.length, +e.target.value)))}
+                      className="w-full rounded-lg border border-zinc-200 px-3 py-1.5 text-sm" />
+                  </label>
+                  <p className="text-xs text-zinc-500">
+                    {gifFrames.length} frames · {gifWidth}×{gifHeight}px each
+                    <br />
+                    Sheet: {gifWidth * Math.min(sheetCols, gifFrames.length)}×{gifHeight * Math.ceil(gifFrames.length / sheetCols)}px
+                  </p>
+                </div>
+
+                <Button onClick={handleGenerateSheet} disabled={generating} className="w-full">
+                  {generating ? (
+                    <><Loader2 size={16} className="animate-spin" /> Generating...</>
+                  ) : (
+                    <><ArrowRightLeft size={16} /> Generate Spritesheet</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Sprite-to-GIF mode */}
+      {mode === 'sprite-to-gif' && (
+        <>
       <FileDropzone onFiles={handleFiles} accept="image/*" label="Drop your spritesheet here" />
 
       {image && (
@@ -321,8 +506,8 @@ export function SpriteToGifPage() {
           </div>
         </div>
       )}
+      </>
+      )}
     </div>
   )
 }
-
-// GIF encoder imported from ../../lib/gif-encoder
