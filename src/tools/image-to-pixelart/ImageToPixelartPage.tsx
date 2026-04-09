@@ -66,29 +66,68 @@ function AdvancedPixelart() {
   const [collision, setCollision] = useState<CollisionData | null>(null)
   const [showCollision, setShowCollision] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  // GIF state
+  const [isGif, setIsGif] = useState(false)
+  const [gifFrames, setGifFrames] = useState<GifFrame[]>([])
+  const [sourceGifUrl, setSourceGifUrl] = useState<string | null>(null)
+  const [resultGifUrl, setResultGifUrl] = useState<string | null>(null)
+  const [resultGifBlob, setResultGifBlob] = useState<Blob | null>(null)
+  const [processingGif, setProcessingGif] = useState(false)
+
   const update = (partial: Partial<PipelineOptions>) => setOpts(prev => ({ ...prev, ...partial }))
 
   const handleFiles = async (files: File[]) => {
-    const url = await fileToDataURL(files[0])
-    const img = await loadImage(url)
-    setImage(img)
+    const file = files[0]
+    const isGifFile = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif')
+    setIsGif(isGifFile)
+    setResultGifUrl(null)
+    setResultGifBlob(null)
+
+    if (isGifFile) {
+      setSourceGifUrl(URL.createObjectURL(file))
+      const buf = await file.arrayBuffer()
+      const { frames, width, height } = decodeGifFrames(new Uint8Array(buf))
+      setGifFrames(frames)
+      // Show first frame as image for static preview
+      if (frames.length > 0) {
+        const c = document.createElement('canvas')
+        c.width = width; c.height = height
+        c.getContext('2d')!.putImageData(frames[0].imageData, 0, 0)
+        const img = new Image()
+        img.src = c.toDataURL()
+        await new Promise<void>(r => { img.onload = () => r() })
+        setImage(img)
+      }
+    } else {
+      setGifFrames([])
+      setSourceGifUrl(null)
+      const url = await fileToDataURL(file)
+      const img = await loadImage(url)
+      setImage(img)
+    }
+
     setResultUrl(null)
     setSmallUrl(null)
     setCollision(null)
   }
 
-  // Run pipeline whenever image or options change
+  /** Process a single ImageData through the pipeline */
+  const processFrame = useCallback((source: ImageData): { scaled: ImageData; small: ImageData; collision?: CollisionData } => {
+    return runPixelPipeline(source, opts)
+  }, [opts])
+
+  // Run pipeline on static image (or first GIF frame) for live preview
   const runPipeline = useCallback(() => {
     if (!image) return
 
-    // Get source ImageData
     const srcCanvas = document.createElement('canvas')
     srcCanvas.width = image.width; srcCanvas.height = image.height
     const srcCtx = srcCanvas.getContext('2d')!
     srcCtx.drawImage(image, 0, 0)
     const source = srcCtx.getImageData(0, 0, image.width, image.height)
 
-    const result = runPixelPipeline(source, opts)
+    const result = processFrame(source)
 
     // Render scaled result
     const outCanvas = document.createElement('canvas')
@@ -96,7 +135,7 @@ function AdvancedPixelart() {
     const outCtx = outCanvas.getContext('2d')!
     outCtx.putImageData(result.scaled, 0, 0)
 
-    // Draw collision overlay if enabled
+    // Draw collision overlay
     if (showCollision && result.collision) {
       const factor = result.scaled.width / result.small.width
       outCtx.strokeStyle = '#ff0044'
@@ -119,30 +158,55 @@ function AdvancedPixelart() {
     if (resultUrl) URL.revokeObjectURL(resultUrl)
     if (smallUrl) URL.revokeObjectURL(smallUrl)
 
-    outCanvas.toBlob(blob => {
-      if (blob) setResultUrl(URL.createObjectURL(blob))
-    })
+    outCanvas.toBlob(blob => { if (blob) setResultUrl(URL.createObjectURL(blob)) })
 
-    // Small version
     const smallCanvas = document.createElement('canvas')
     smallCanvas.width = result.small.width; smallCanvas.height = result.small.height
     smallCanvas.getContext('2d')!.putImageData(result.small, 0, 0)
-    smallCanvas.toBlob(blob => {
-      if (blob) setSmallUrl(URL.createObjectURL(blob))
-    })
+    smallCanvas.toBlob(blob => { if (blob) setSmallUrl(URL.createObjectURL(blob)) })
 
     setCollision(result.collision ?? null)
-  }, [image, opts, showCollision])
+  }, [image, processFrame, showCollision])
 
   useEffect(() => { runPipeline() }, [runPipeline])
 
+  // Process all GIF frames and encode as a new GIF
+  const handleGenerateGif = async () => {
+    if (gifFrames.length === 0) return
+    setProcessingGif(true)
+
+    const processed: ImageData[] = []
+    let avgDelay = 10, totalDelay = 0
+
+    for (const frame of gifFrames) {
+      const result = processFrame(frame.imageData)
+      processed.push(result.scaled)
+      totalDelay += frame.delay
+    }
+    avgDelay = Math.round(totalDelay / gifFrames.length)
+
+    const outW = processed[0].width
+    const outH = processed[0].height
+    const gifData = encodeGif(outW, outH, processed, avgDelay)
+    const blob = new Blob([gifData.buffer as ArrayBuffer], { type: 'image/gif' })
+
+    if (resultGifUrl) URL.revokeObjectURL(resultGifUrl)
+    setResultGifBlob(blob)
+    setResultGifUrl(URL.createObjectURL(blob))
+    setProcessingGif(false)
+  }
+
   const handleDownload = async () => {
+    if (isGif && resultGifBlob) {
+      downloadBlob(resultGifBlob, `pixelart_advanced_${opts.pixelSize}px.gif`)
+      return
+    }
     if (!image) return
     const srcCanvas = document.createElement('canvas')
     srcCanvas.width = image.width; srcCanvas.height = image.height
     srcCanvas.getContext('2d')!.drawImage(image, 0, 0)
     const source = srcCanvas.getContext('2d')!.getImageData(0, 0, image.width, image.height)
-    const result = runPixelPipeline(source, opts)
+    const result = processFrame(source)
     const outCanvas = document.createElement('canvas')
     outCanvas.width = result.scaled.width; outCanvas.height = result.scaled.height
     outCanvas.getContext('2d')!.putImageData(result.scaled, 0, 0)
@@ -156,7 +220,7 @@ function AdvancedPixelart() {
     srcCanvas.width = image.width; srcCanvas.height = image.height
     srcCanvas.getContext('2d')!.drawImage(image, 0, 0)
     const source = srcCanvas.getContext('2d')!.getImageData(0, 0, image.width, image.height)
-    const result = runPixelPipeline(source, opts)
+    const result = processFrame(source)
     const outCanvas = document.createElement('canvas')
     outCanvas.width = result.small.width; outCanvas.height = result.small.height
     outCanvas.getContext('2d')!.putImageData(result.small, 0, 0)
@@ -173,12 +237,18 @@ function AdvancedPixelart() {
 
   return (
     <>
-      <FileDropzone onFiles={handleFiles} accept="image/*" label="Drop an image to pixelate" />
+      <FileDropzone onFiles={handleFiles} accept="image/*,.gif" label="Drop an image or GIF to pixelate" description="Supports PNG, JPG, and animated GIF files" />
 
       {image && (
         <div className="grid grid-cols-[1fr_280px] gap-5">
           {/* Preview */}
           <div className="space-y-4">
+            {isGif && (
+              <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">
+                Animated GIF detected — {gifFrames.length} frames. Preview shows first frame; generate to process all.
+              </p>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-white border border-zinc-200 rounded-lg p-3">
                 <p className="text-xs font-medium text-zinc-500 mb-2">Original ({image.width}×{image.height})</p>
@@ -186,7 +256,11 @@ function AdvancedPixelart() {
                   backgroundImage: 'repeating-conic-gradient(#e4e4e7 0% 25%, #f4f4f5 0% 50%)',
                   backgroundSize: '12px 12px',
                 }}>
-                  <img src={image.src} alt="Original" className="max-w-full" />
+                  {isGif && sourceGifUrl ? (
+                    <img src={sourceGifUrl} alt="Original GIF" className="max-w-full" />
+                  ) : (
+                    <img src={image.src} alt="Original" className="max-w-full" />
+                  )}
                 </div>
               </div>
               <div className="bg-white border border-zinc-200 rounded-lg p-3">
@@ -198,7 +272,9 @@ function AdvancedPixelart() {
                   backgroundSize: '12px 12px',
                   imageRendering: 'pixelated',
                 }}>
-                  {resultUrl ? (
+                  {isGif && resultGifUrl ? (
+                    <img src={resultGifUrl} alt="Pixel art GIF" className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                  ) : resultUrl ? (
                     <img src={resultUrl} alt="Result" className="max-w-full" style={{ imageRendering: 'pixelated' }} />
                   ) : (
                     <div className="flex items-center justify-center h-32 text-zinc-400 text-xs">Processing...</div>
@@ -207,14 +283,31 @@ function AdvancedPixelart() {
               </div>
             </div>
 
-            <div className="flex gap-2">
-              <Button onClick={handleDownload} size="sm" className="flex-1">
-                <Download size={14} /> Download (upscaled)
-              </Button>
-              <Button onClick={handleDownloadSmall} size="sm" variant="secondary" className="flex-1">
-                <Download size={14} /> Download (1:1 pixel)
-              </Button>
-            </div>
+            {isGif ? (
+              <div className="flex gap-2">
+                <Button onClick={handleGenerateGif} disabled={processingGif} className="flex-1">
+                  {processingGif ? (
+                    <><Loader2 size={14} className="animate-spin" /> Processing {gifFrames.length} frames...</>
+                  ) : (
+                    `Generate Pixel Art GIF (${gifFrames.length} frames)`
+                  )}
+                </Button>
+                {resultGifBlob && (
+                  <Button onClick={handleDownload} size="sm" variant="secondary">
+                    <Download size={14} /> Download GIF
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Button onClick={handleDownload} size="sm" className="flex-1">
+                  <Download size={14} /> Download (upscaled)
+                </Button>
+                <Button onClick={handleDownloadSmall} size="sm" variant="secondary" className="flex-1">
+                  <Download size={14} /> Download (1:1 pixel)
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Pipeline Controls */}
