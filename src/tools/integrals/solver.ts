@@ -11,6 +11,57 @@ const cas = {
   factor: (expr: string): string => String(Algebrite.factor(expr)),
 }
 
+/** Solve formulas like sec(kx)*tan(kx) or csc(kx)*cot(kx) with chain rule */
+function solveChainRuleFormula(
+  innerArg: string, variable: string,
+  resultFn: string, // "sec" or "-csc"
+  formulaId: number,
+  steps: IntegralStep[]
+): string {
+  const f = getFormula(formulaId)
+  steps.push({
+    label: `Fórmula ${f.id}: ${f.name}`,
+    expression: f.formula,
+    description: f.description,
+  })
+
+  let k = '1'
+  try {
+    k = cas.run(`coeff(${innerArg}, ${variable}, 1)`)
+    if (!k || k === '0') k = '1'
+  } catch { k = '1' }
+
+  const isNeg = resultFn.startsWith('-')
+  const fn = isNeg ? resultFn.slice(1) : resultFn
+  const base = `${fn}(${innerArg})`
+  const result = k === '1'
+    ? (isNeg ? `-(${base})` : base)
+    : (isNeg ? `-(1/${k})*${base}` : `(1/${k})*${base}`)
+
+  steps.push({
+    label: 'Aplicar fórmula',
+    expression: k === '1'
+      ? formatExpression(base)
+      : `(1/${k}) · ${formatExpression(base)}`,
+    description: k === '1'
+      ? `Se aplica la fórmula directamente`
+      : `Se aplica la fórmula con factor 1/${k} por la regla de la cadena`,
+  })
+
+  try { return cas.simplify(result) } catch { return result }
+}
+
+/** Rewrite sec/csc/cot/tan to sin/cos so Algebrite can handle them */
+function rewriteSecCscCot(expr: string): string {
+  let s = expr
+  // Order matters: do multi-char first
+  s = s.replace(/\bcsc\(([^)]+)\)/g, '(1/sin($1))')
+  s = s.replace(/\bsec\(([^)]+)\)/g, '(1/cos($1))')
+  s = s.replace(/\bcot\(([^)]+)\)/g, '(cos($1)/sin($1))')
+  s = s.replace(/\btan\(([^)]+)\)/g, '(sin($1)/cos($1))')
+  return s
+}
+
 // ---------------------------------------------------------------------------
 // 27 Integration Formulas (strictly following the reference table)
 // ---------------------------------------------------------------------------
@@ -111,17 +162,20 @@ export function solveIntegral(
         case 'log-pattern':
           antiderivative = solveLogPattern(expr, variable, steps)
           break
-        case 'direct':
         case 'trig-identity':
+          antiderivative = solveTrigIdentity(expr, variable, steps)
+          break
+        case 'direct':
         case 'trig-substitution':
         default:
           antiderivative = solveWithFormulas(expr, variable, steps)
           break
       }
     } catch {
-      // Fallback: try Algebrite directly
+      // Fallback: try Algebrite directly (with sec/csc/cot rewriting if needed)
+      const tryExpr = /\b(sec|csc|cot)\(/.test(expr) ? rewriteSecCscCot(expr) : expr
       try {
-        const fallbackResult = cas.integral(expr, variable)
+        const fallbackResult = cas.integral(tryExpr, variable)
         const simplified = cas.simplify(fallbackResult)
         steps.push({
           label: 'Integración directa',
@@ -204,6 +258,15 @@ function detectTechnique(expr: string, variable: string, method: IntegralMethod)
   // ★ Check for rational expressions in exp(x): e^x/(e^x+1), (e^x-1)/(e^x+1), 1/(1+e^x)
   if (isExpRational(expr, variable)) return 'exp-substitution'
 
+  // ★ Check for trig power u-sub: sin^n(x)*cos(x), tan^n(x)*sec²(x), etc.
+  if (isTrigPowerSubstitution(expr, variable)) return 'u-substitution'
+
+  // ★ Check for e^(f(x)) * f'(x) pattern (composite exponential)
+  if (isCompositeExponential(expr, variable)) return 'u-substitution'
+
+  // ★ Check for trig identity simplification: tan²(x) = sec²(x)-1, etc.
+  if (needsTrigIdentity(expr, variable)) return 'trig-identity'
+
   // Check for product of different classes → by parts
   if (isProductOfClasses(expr, variable)) return 'by-parts'
 
@@ -278,6 +341,221 @@ function isBalanced(s: string): boolean {
     if (depth < 0) return false
   }
   return depth === 0
+}
+
+/**
+ * Detect e^(f(x)) * k*f'(x) patterns:
+ *   e^(tan(2x)) * sec²(2x)  → u=tan(2x)
+ *   e^(2sin(3x)) * cos(3x)  → u=2sin(3x)
+ *   e^(x²) * x               → u=x²
+ */
+function isCompositeExponential(expr: string, variable: string): boolean {
+  const s = expr.replace(/\s/g, '')
+  // Must have exp(...) multiplied by something
+  if (!/\bexp\(/.test(s)) return false
+  if (!s.includes('*')) return false
+  // Extract exp argument and the rest
+  const info = parseCompositeExp(s, variable)
+  return info !== null
+}
+
+function parseCompositeExp(expr: string, variable: string): { expArg: string; rest: string; k: string } | null {
+  const s = expr.replace(/\s/g, '')
+  // Try pattern: exp(...)* rest or rest *exp(...)
+  let expArg = ''
+  let rest = ''
+
+  // exp(balanced)* rest
+  const expIdx = s.indexOf('exp(')
+  if (expIdx >= 0) {
+    const balanced = extractBalancedParenFromExpr(s, expIdx + 3)
+    if (balanced) {
+      expArg = balanced.content
+      const after = s.slice(balanced.end + 1)
+      const before = s.slice(0, expIdx)
+      if (after.startsWith('*')) rest = before + after.slice(1)
+      else if (before.endsWith('*')) rest = before.slice(0, -1) + after
+      else return null
+    }
+  }
+  if (!expArg || !rest || !expArg.includes(variable)) return null
+
+  // Check: is rest = k * derivative(expArg)?
+  try {
+    const derivArg = cas.derivative(expArg, variable)
+    // Rewrite sec/csc/cot in rest and deriv for comparison
+    const restRewritten = rewriteSecCscCot(rest)
+    const derivRewritten = rewriteSecCscCot(derivArg)
+    const ratio = cas.simplify(`(${restRewritten}) / (${derivRewritten})`)
+    if (!ratio.includes(variable)) {
+      return { expArg, rest, k: ratio }
+    }
+  } catch { /* ignore */ }
+  return null
+}
+
+/**
+ * Detect expressions that need trig identity simplification:
+ *   tan²(x) = sec²(x) - 1
+ *   cot²(x) = csc²(x) - 1
+ *   sin²(x) = (1 - cos(2x))/2
+ *   cos²(x) = (1 + cos(2x))/2
+ */
+function needsTrigIdentity(expr: string, _variable: string): boolean {
+  const s = expr.replace(/\s/g, '')
+  // tan(...)^2 or cot(...)^2 (not higher powers — those use trig power sub)
+  if (/\btan\([^)]+\)\^2$/.test(s)) return true
+  if (/\bcot\([^)]+\)\^2$/.test(s)) return true
+  return false
+}
+
+/**
+ * Detect trig power u-substitution patterns:
+ *   sin^n(x)*cos(x)  → u=sin(x), du=cos(x)dx
+ *   cos^n(x)*sin(x)  → u=cos(x), du=-sin(x)dx
+ *   tan^n(x)*sec(x)^2 → u=tan(x), du=sec²(x)dx
+ *   cot^n(x)*csc(x)^2 → u=cot(x), du=-csc²(x)dx
+ *   sec^n(x)*sec(x)*tan(x) → u=sec(x), du=sec(x)tan(x)dx
+ *   csc^n(x)*csc(x)*cot(x) → u=csc(x), du=-csc(x)cot(x)dx
+ */
+function isTrigPowerSubstitution(expr: string, variable: string): boolean {
+  const info = parseTrigPowerSub(expr, variable)
+  return info !== null
+}
+
+interface TrigPowerSubInfo {
+  u: string         // e.g. "sin(x)"
+  du: string         // e.g. "cos(x)"
+  power: number      // the exponent on u
+  coeff: string      // leading coefficient (e.g. "-1" for cos^n*sin)
+  innerArg: string   // e.g. "x", "3*x"
+}
+
+function parseTrigPowerSub(expr: string, variable: string): TrigPowerSubInfo | null {
+  const s = expr.replace(/\s/g, '')
+
+  // Patterns to match (with optional inner argument like 3*x):
+  // sin(arg)^n * cos(arg)  OR  cos(arg) * sin(arg)^n
+  // cos(arg)^n * sin(arg)  OR  sin(arg) * cos(arg)^n
+  // tan(arg)^n * sec(arg)^2
+  // cot(arg)^n * csc(arg)^2
+  // sec(arg)^n * sec(arg) * tan(arg)  (i.e. sec^(n+1)*tan)
+  // csc(arg)^n * csc(arg) * cot(arg)
+
+  const trigFuncs = ['sin', 'cos', 'tan', 'cot', 'sec', 'csc']
+
+  // Extract argument pattern: captures the function and its argument
+  for (const fn of trigFuncs) {
+    // Match fn(arg)^n at start — e.g. sin(x)^3, sin(3*x)^5
+    const powPatternA = new RegExp(`^${fn}\\(([^)]+)\\)\\^(\\d+)\\*(.+)$`)
+    const mA = s.match(powPatternA)
+    if (mA) {
+      const arg = mA[1]
+      const n = parseInt(mA[2])
+      const rest = mA[3]
+      if (!arg.includes(variable)) continue
+      const info = matchTrigDerivative(fn, arg, n, rest, variable)
+      if (info) return info
+    }
+
+    // Match rest * fn(arg)^n at end — e.g. cos(x)*sin(x)^3
+    const powPatternB = new RegExp(`^(.+)\\*${fn}\\(([^)]+)\\)\\^(\\d+)$`)
+    const mB = s.match(powPatternB)
+    if (mB) {
+      const rest = mB[1]
+      const arg = mB[2]
+      const n = parseInt(mB[3])
+      if (!arg.includes(variable)) continue
+      const info = matchTrigDerivative(fn, arg, n, rest, variable)
+      if (info) return info
+    }
+  }
+
+  return null
+}
+
+function matchTrigDerivative(fn: string, arg: string, power: number, rest: string, _variable: string): TrigPowerSubInfo | null {
+  const r = rest.replace(/\s/g, '')
+
+  // sin^n * cos → u=sin, du=cos
+  if (fn === 'sin' && (r === `cos(${arg})` || r === `cos(${arg})^1`)) {
+    return { u: `sin(${arg})`, du: `cos(${arg})`, power, coeff: '1', innerArg: arg }
+  }
+  // cos^n * sin → u=cos, du=-sin → coeff = -1
+  if (fn === 'cos' && (r === `sin(${arg})` || r === `sin(${arg})^1`)) {
+    return { u: `cos(${arg})`, du: `sin(${arg})`, power, coeff: '-1', innerArg: arg }
+  }
+  // tan^n * sec^2 → u=tan, du=sec²
+  if (fn === 'tan' && (r === `sec(${arg})^2` || r === `sec(${arg})*sec(${arg})`)) {
+    return { u: `tan(${arg})`, du: `sec(${arg})^2`, power, coeff: '1', innerArg: arg }
+  }
+  // cot^n * csc^2 → u=cot, du=-csc²
+  if (fn === 'cot' && (r === `csc(${arg})^2` || r === `csc(${arg})*csc(${arg})`)) {
+    return { u: `cot(${arg})`, du: `csc(${arg})^2`, power, coeff: '-1', innerArg: arg }
+  }
+  // sec^n * sec*tan → u=sec, du=sec*tan
+  if (fn === 'sec' && (r === `sec(${arg})*tan(${arg})` || r === `tan(${arg})*sec(${arg})`)) {
+    return { u: `sec(${arg})`, du: `sec(${arg})*tan(${arg})`, power, coeff: '1', innerArg: arg }
+  }
+  // csc^n * csc*cot → u=csc, du=-csc*cot
+  if (fn === 'csc' && (r === `csc(${arg})*cot(${arg})` || r === `cot(${arg})*csc(${arg})`)) {
+    return { u: `csc(${arg})`, du: `csc(${arg})*cot(${arg})`, power, coeff: '-1', innerArg: arg }
+  }
+
+  return null
+}
+
+function solveTrigPowerSub(expr: string, variable: string, steps: IntegralStep[]): string {
+  const info = parseTrigPowerSub(expr, variable)
+  if (!info) throw new Error('No trig power substitution pattern found')
+
+  const { u, du, power, coeff, innerArg } = info
+  const isSimpleArg = innerArg === variable
+
+  // Chain rule factor: if inner arg is k*x, divide by k
+  let chainFactor = '1'
+  if (!isSimpleArg) {
+    try {
+      chainFactor = cas.run(`coeff(${innerArg}, ${variable}, 1)`)
+      if (!chainFactor || chainFactor === '0') chainFactor = '1'
+    } catch { chainFactor = '1' }
+  }
+
+  steps.push({
+    label: 'Identificar sustitución trigonométrica',
+    expression: `u = ${formatExpression(u)}, du = ${coeff === '-1' ? '-' : ''}${formatExpression(du)} d${variable}`,
+    description: `Se identifica el patrón u^n · du donde u = ${formatExpression(u)}`,
+  })
+
+  const f = getFormula(4) // power rule
+  steps.push({
+    label: `Fórmula ${f.id}: ${f.name}`,
+    expression: f.formula,
+    description: 'Se aplica la regla de la potencia: ∫u^n du = u^(n+1)/(n+1)',
+  })
+
+  const newPow = power + 1
+  // Result: coeff * (1/chainFactor) * u^(n+1)/(n+1)
+  let numericalCoeff: string
+  try {
+    numericalCoeff = cas.simplify(`(${coeff}) * (1/${chainFactor}) * (1/${newPow})`)
+  } catch {
+    numericalCoeff = `${coeff}/${chainFactor === '1' ? newPow : `${chainFactor}*${newPow}`}`
+  }
+
+  const result = `(${numericalCoeff})*${u}^${newPow}`
+
+  steps.push({
+    label: 'Aplicar fórmula',
+    expression: `${formatExpression(numericalCoeff)} · ${formatExpression(u)}^${newPow}`,
+    description: `Se aplica la regla de potencia con u = ${formatExpression(u)}, n = ${power}`,
+  })
+
+  try {
+    return cas.simplify(result)
+  } catch {
+    return result
+  }
 }
 
 function isPureExponential(expr: string, variable: string): boolean {
@@ -599,7 +877,24 @@ function solvePowerRule(expr: string, variable: string, steps: IntegralStep[]): 
 // ---------------------------------------------------------------------------
 
 function solveWithFormulas(expr: string, variable: string, steps: IntegralStep[]): string {
-  const detected = detectFormulaForTerm(expr, variable)
+  // ★ Handle sec/csc/cot formulas BEFORE Algebrite (which doesn't support them)
+  // Formula 16: sec(arg)*tan(arg), Formula 17: csc(arg)*cot(arg)
+  {
+    const s = expr.replace(/\s/g, '')
+    const secTanMatch = s.match(/^(?:sec\(([^)]+)\)\*tan\(([^)]+)\)|tan\(([^)]+)\)\*sec\(([^)]+)\))$/)
+    if (secTanMatch) {
+      const arg = secTanMatch[1] || secTanMatch[3]
+      return solveChainRuleFormula(arg, variable, 'sec', 16, steps)
+    }
+    const cscCotMatch = s.match(/^(?:csc\(([^)]+)\)\*cot\(([^)]+)\)|cot\(([^)]+)\)\*csc\(([^)]+)\))$/)
+    if (cscCotMatch) {
+      const arg = cscCotMatch[1] || cscCotMatch[3]
+      return solveChainRuleFormula(arg, variable, '-csc', 17, steps)
+    }
+  }
+
+  let detected: ReturnType<typeof detectFormulaForTerm> = null
+  try { detected = detectFormulaForTerm(expr, variable) } catch { /* ignore */ }
 
   if (detected) {
     const f = getFormula(detected.formulaId)
@@ -645,6 +940,99 @@ function solveWithFormulas(expr: string, variable: string, steps: IntegralStep[]
   if (/\bexp\(/.test(expr) && expr.includes('/')) {
     const manualResult = solveExpSubstitution(expr, variable, steps)
     if (manualResult) return manualResult
+  }
+
+  // Manual: Formulas 16/17 with chain rule — sec(kx)*tan(kx), csc(kx)*cot(kx)
+  {
+    const secTanMatch = expr.match(/^(?:sec\(([^)]+)\)\*tan\(([^)]+)\)|tan\(([^)]+)\)\*sec\(([^)]+)\))$/)
+    if (secTanMatch) {
+      const arg = secTanMatch[1] || secTanMatch[3]
+      return solveChainRuleFormula(arg, variable, 'sec', 16, steps)
+    }
+    const cscCotMatch = expr.match(/^(?:csc\(([^)]+)\)\*cot\(([^)]+)\)|cot\(([^)]+)\)\*csc\(([^)]+)\))$/)
+    if (cscCotMatch) {
+      const arg = cscCotMatch[1] || cscCotMatch[3]
+      return solveChainRuleFormula(arg, variable, '-csc', 17, steps)
+    }
+  }
+
+  // Fallback: rewrite sec/csc/cot/tan to sin/cos and try multiple strategies
+  if (/\b(sec|csc|cot|tan)\(/.test(expr)) {
+    const rewritten = rewriteSecCscCot(expr)
+    const simplified = (() => { try { return cas.simplify(rewritten) } catch { return rewritten } })()
+    steps.push({
+      label: 'Reescribir funciones trigonométricas',
+      expression: `${formatExpression(expr)} → ${formatExpression(simplified)}`,
+      description: 'Se reescriben sec, csc, cot, tan en términos de sin y cos',
+    })
+
+    // Try Algebrite on simplified form
+    try {
+      const result = cas.integral(simplified, variable)
+      const simplifiedResult = cas.simplify(result)
+      steps.push({
+        label: 'Integración directa',
+        expression: formatExpression(simplifiedResult),
+        description: 'Se integra la expresión reescrita',
+      })
+      return simplifiedResult
+    } catch { /* try u-sub on rewritten form */ }
+
+    // Try sin/cos power pattern: sin(x)/cos(x)^n or cos(x)/sin(x)^n
+    {
+      const sinOverCos = simplified.match(/^sin\(([^)]+)\)\s*\/\s*\(?cos\(\1\)\^(\d+)\)?$/) ||
+                          simplified.match(/^sin\(([^)]+)\)\s*\*\s*cos\(\1\)\^\((-\d+)\)$/)
+      if (sinOverCos) {
+        const arg = sinOverCos[1]
+        const n = parseInt(sinOverCos[2])
+        // u=cos(x), du=-sin(x)dx → ∫-u^(-n) du = u^(-n+1)/(-n+1) * (-1)
+        const newN = -n // exponent on u = -n (since sin/cos^n = u^(-n) * (-du))
+        const resultPow = newN + 1
+        let k = '1'
+        try { k = cas.run(`coeff(${arg}, ${variable}, 1)`); if (!k || k === '0') k = '1' } catch { k = '1' }
+        const coeff = cas.simplify(`-1/(${k}*${resultPow})`)
+        const result = `(${coeff})*cos(${arg})^(${resultPow})`
+        steps.push({
+          label: 'Sustitución',
+          expression: `u = cos(${formatExpression(arg)}), du = ${k === '1' ? '' : k + '·'}(-sin(${formatExpression(arg)})) d${variable}`,
+          description: 'Se aplica sustitución u = cos(x)',
+        })
+        steps.push({
+          label: 'Resultado',
+          expression: formatExpression(result),
+          description: `Se integra u^(${-n}) y se sustituye de vuelta`,
+        })
+        try { return cas.simplify(result) } catch { return result }
+      }
+
+      const cosOverSin = simplified.match(/^cos\(([^)]+)\)\s*\/\s*\(?sin\(\1\)\^(\d+)\)?$/)
+      if (cosOverSin) {
+        const arg = cosOverSin[1]
+        const n = parseInt(cosOverSin[2])
+        const newN = -n
+        const resultPow = newN + 1
+        let k = '1'
+        try { k = cas.run(`coeff(${arg}, ${variable}, 1)`); if (!k || k === '0') k = '1' } catch { k = '1' }
+        const coeff = cas.simplify(`1/(${k}*${resultPow})`)
+        const result = `(${coeff})*sin(${arg})^(${resultPow})`
+        steps.push({
+          label: 'Sustitución',
+          expression: `u = sin(${formatExpression(arg)}), du = ${k === '1' ? '' : k + '·'}cos(${formatExpression(arg)}) d${variable}`,
+          description: 'Se aplica sustitución u = sin(x)',
+        })
+        steps.push({
+          label: 'Resultado',
+          expression: formatExpression(result),
+          description: `Se integra u^(${-n}) y se sustituye de vuelta`,
+        })
+        try { return cas.simplify(result) } catch { return result }
+      }
+    }
+
+    // Try u-substitution on the rewritten sin/cos form
+    try {
+      return solveUSubstitution(simplified, variable, steps)
+    } catch { /* continue to error */ }
   }
 
   throw new Error('No se pudo resolver la integral')
@@ -753,19 +1141,46 @@ function solveExpExponential(expr: string, variable: string, steps: IntegralStep
  */
 function solveExpSubstitution(expr: string, variable: string, steps: IntegralStep[]): string | null {
   try {
-    // Substitute exp(x) → u and simplify
+    // Find the exp argument — e.g. exp(x), exp(2*x), exp(3*x+1)
+    const expArgMatch = expr.match(/exp\(([^)]+)\)/)
+    const expArg = expArgMatch ? expArgMatch[1].trim() : variable
+
+    // Determine chain rule factor: if exp(k*x), need du = k*exp(k*x)*dx → dx = du/(k*u)
+    let chainK = '1'
+    try {
+      chainK = cas.run(`coeff(${expArg}, ${variable}, 1)`)
+      if (!chainK || chainK === '0') chainK = '1'
+    } catch { chainK = '1' }
+
+    // Substitute all exp(arg) → u, handling exp(k*x) → u^k when u = exp(x)
     const u = 'USUB'
-    const substituted = expr.replace(/exp\(\s*\w\s*\)/g, u)
+    const substituted = expr.replace(/exp\(([^)]+)\)/g, (_match, arg) => {
+      if (chainK === '1') {
+        // u = exp(x). Check if arg is k*x → u^k
+        try {
+          const ratio = cas.simplify(`(${arg}) / (${variable})`)
+          if (!ratio.includes(variable)) {
+            const k = evalToNumber(ratio)
+            if (k === 1) return u
+            return `${u}^(${ratio})`
+          }
+        } catch { /* fallback */ }
+      }
+      return u
+    })
 
     steps.push({
       label: 'Sustitución',
-      expression: `u = e^${variable},  du = e^${variable} d${variable}  →  d${variable} = du/u`,
-      description: `Se sustituye u = e^${variable} para transformar la integral`,
+      expression: chainK === '1'
+        ? `u = e^${variable},  du = e^${variable} d${variable}  →  d${variable} = du/u`
+        : `u = e^{${formatExpression(expArg)}},  du = ${chainK} · u · d${variable}  →  d${variable} = du/(${chainK}·u)`,
+      description: `Se sustituye u = e^{${formatExpression(expArg)}} para transformar la integral`,
     })
 
-    // The integral becomes ∫ f(u) · (1/u) du since dx = du/u
-    // Build the new integrand: substituted / u
-    const newIntegrand = `(${substituted})/${u}`
+    // The integral becomes ∫ f(u) · (1/(k*u)) du since dx = du/(k*u)
+    const newIntegrand = chainK === '1'
+      ? `(${substituted})/${u}`
+      : `(${substituted})/(${chainK}*${u})`
     const simplified = cas.simplify(newIntegrand.replace(/USUB/g, 'u'))
 
     steps.push({
@@ -784,8 +1199,8 @@ function solveExpSubstitution(expr: string, variable: string, steps: IntegralSte
       description: 'Se resuelve la integral en la variable u',
     })
 
-    // Back-substitute u = exp(x)
-    let finalResult = cas.simplify(uSimplified.replace(/\bu\b/g, `exp(${variable})`))
+    // Back-substitute u = exp(expArg)
+    let finalResult = cas.simplify(uSimplified.replace(/\bu\b/g, `exp(${expArg})`))
 
     // Post-process: simplify log expressions with exp(-x) terms
     // log(1-exp(-x)) = log((exp(x)-1)/exp(x)) = log(exp(x)-1) - x
@@ -810,6 +1225,117 @@ function solveExpSubstitution(expr: string, variable: string, steps: IntegralSte
   } catch {
     return null
   }
+}
+
+// ---------------------------------------------------------------------------
+// Composite exponential solver: ∫ e^(f(x)) * k*f'(x) dx = k*e^(f(x)) + C
+// ---------------------------------------------------------------------------
+
+function solveCompositeExponential(
+  info: { expArg: string; rest: string; k: string },
+  variable: string,
+  steps: IntegralStep[],
+): string {
+  const { expArg, k } = info
+
+  const f = getFormula(7) // ∫e^u du = e^u
+  steps.push({
+    label: 'Identificar sustitución',
+    expression: `u = ${formatExpression(expArg)}, du = ${formatExpression(cas.derivative(expArg, variable))} d${variable}`,
+    description: `Se identifica u = ${formatExpression(expArg)} en el exponente`,
+  })
+
+  steps.push({
+    label: `Fórmula ${f.id}: ${f.name}`,
+    expression: f.formula,
+    description: 'Se aplica ∫e^u du = e^u con la sustitución',
+  })
+
+  const result = k === '1'
+    ? `exp(${expArg})`
+    : `(${k})*exp(${expArg})`
+
+  steps.push({
+    label: 'Aplicar fórmula',
+    expression: k === '1'
+      ? `e^(${formatExpression(expArg)})`
+      : `${formatExpression(k)} · e^(${formatExpression(expArg)})`,
+    description: k === '1'
+      ? 'Se aplica ∫e^u du = e^u directamente'
+      : `Se aplica ∫e^u du = e^u con factor ${formatExpression(k)} de la sustitución`,
+  })
+
+  try { return cas.simplify(result) } catch { return result }
+}
+
+// ---------------------------------------------------------------------------
+// Trig identity solver: tan²(x) = sec²(x)-1, etc.
+// ---------------------------------------------------------------------------
+
+function solveTrigIdentity(expr: string, variable: string, steps: IntegralStep[]): string {
+  const s = expr.replace(/\s/g, '')
+
+  // tan(arg)^2 → sec(arg)^2 - 1
+  const tanMatch = s.match(/^tan\(([^)]+)\)\^2$/)
+  if (tanMatch) {
+    const arg = tanMatch[1]
+    let k = '1'
+    try {
+      k = cas.run(`coeff(${arg}, ${variable}, 1)`)
+      if (!k || k === '0') k = '1'
+    } catch { k = '1' }
+
+    steps.push({
+      label: 'Identidad trigonométrica',
+      expression: `tan²(${formatExpression(arg)}) = sec²(${formatExpression(arg)}) − 1`,
+      description: 'Se aplica la identidad tan²(u) = sec²(u) − 1',
+    })
+
+    // ∫sec²(arg) - 1 dx = (1/k)*tan(arg) - x
+    const tanResult = k === '1' ? `tan(${arg})` : `(1/${k})*tan(${arg})`
+    const result = `${tanResult} - ${variable}`
+
+    steps.push({
+      label: 'Integrar cada término',
+      expression: `∫sec²(${formatExpression(arg)}) d${variable} − ∫d${variable} = ${formatExpression(tanResult)} − ${variable}`,
+      description: k === '1'
+        ? 'Se integra sec²(u) = tan(u) y se resta x'
+        : `Se integra sec²(u) = tan(u) con factor 1/${k}, y se resta x`,
+    })
+
+    // Use sin/cos form for Algebrite simplification
+    try { return cas.simplify(result) } catch { return result }
+  }
+
+  // cot(arg)^2 → csc(arg)^2 - 1
+  const cotMatch = s.match(/^cot\(([^)]+)\)\^2$/)
+  if (cotMatch) {
+    const arg = cotMatch[1]
+    let k = '1'
+    try {
+      k = cas.run(`coeff(${arg}, ${variable}, 1)`)
+      if (!k || k === '0') k = '1'
+    } catch { k = '1' }
+
+    steps.push({
+      label: 'Identidad trigonométrica',
+      expression: `cot²(${formatExpression(arg)}) = csc²(${formatExpression(arg)}) − 1`,
+      description: 'Se aplica la identidad cot²(u) = csc²(u) − 1',
+    })
+
+    const cotResult = k === '1' ? `-cot(${arg})` : `(-1/${k})*cot(${arg})`
+    const result = `${cotResult} - ${variable}`
+
+    steps.push({
+      label: 'Integrar cada término',
+      expression: `∫csc²(${formatExpression(arg)}) d${variable} − ∫d${variable} = ${formatExpression(cotResult)} − ${variable}`,
+      description: 'Se integra csc²(u) = -cot(u) y se resta x',
+    })
+
+    try { return cas.simplify(result) } catch { return result }
+  }
+
+  throw new Error('No se encontró identidad trigonométrica aplicable')
 }
 
 // ---------------------------------------------------------------------------
@@ -1076,6 +1602,44 @@ function liatePriority(expr: string, _variable: string): number {
 // ---------------------------------------------------------------------------
 
 function solveUSubstitution(expr: string, variable: string, steps: IntegralStep[]): string {
+  // ★ Try composite exponential: e^(f(x)) * f'(x)
+  const compExp = parseCompositeExp(expr, variable)
+  if (compExp) {
+    return solveCompositeExponential(compExp, variable, steps)
+  }
+
+  // ★ Try trig power substitution first (Algebrite can't handle sec/csc/cot)
+  const trigPow = parseTrigPowerSub(expr, variable)
+  if (trigPow) {
+    return solveTrigPowerSub(expr, variable, steps)
+  }
+
+  // For expressions with sec/csc/cot, try rewriting to sin/cos and solving
+  if (/\b(sec|csc|cot)\(/.test(expr)) {
+    const rewritten = rewriteSecCscCot(expr)
+    const simplifiedRewrite = (() => { try { return cas.simplify(rewritten) } catch { return rewritten } })()
+    // Try Algebrite directly
+    try {
+      const result = cas.integral(simplifiedRewrite, variable)
+      const simplified = cas.simplify(result)
+      steps.push({
+        label: 'Reescribir funciones trigonométricas',
+        expression: `${formatExpression(expr)} → ${formatExpression(simplifiedRewrite)}`,
+        description: 'Se reescriben sec, csc, cot en términos de sin y cos',
+      })
+      steps.push({
+        label: 'Integración directa',
+        expression: formatExpression(simplified),
+        description: 'Se integra la expresión reescrita',
+      })
+      return simplified
+    } catch { /* try solveWithFormulas on rewritten form */ }
+    // Try the full formula solver on the rewritten sin/cos form
+    try {
+      return solveWithFormulas(simplifiedRewrite, variable, steps)
+    } catch { /* continue with regular approach */ }
+  }
+
   try {
     const result = cas.integral(expr, variable)
     const innerFn = detectInnerFunction(expr, variable)

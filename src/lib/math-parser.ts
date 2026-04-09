@@ -104,6 +104,9 @@ export function normalizeForCAS(input: string): string {
   // Note: function calls like sin( remain correct because the digit→letter rule
   // inserts * between e.g. 2sin → 2*sin, but sin( stays as sin(
 
+  // Simplify parenthesized exponents: ^(2) → ^2, ^(-1) → ^(-1) (keep negative)
+  s = s.replace(/\^\((\d+)\)/g, '^$1')
+
   return s
 }
 
@@ -237,7 +240,74 @@ export function latexToAlgebrite(latex: string): string {
           cdot: '*', times: '*', pm: '+-',
           lvert: 'abs(', rvert: ')',
         }
-        if (funcMap[cmd]) { result += funcMap[cmd]; i += cmdLen; continue }
+        if (funcMap[cmd]) {
+          const fn = funcMap[cmd]
+          i += cmdLen
+          while (i < s.length && s[i] === ' ') i++ // skip whitespace
+
+          // Handle \sin^{n} or \sin^n → sin(...)^n
+          let powerSuffix = ''
+          if (s[i] === '^') {
+            i++ // skip ^
+            if (s[i] === '{') {
+              const pa = extractBraceArg(s, i)
+              if (pa) { powerSuffix = `^(${latexToAlgebrite(pa.content)})`; i = pa.end }
+            } else {
+              powerSuffix = `^${s[i]}`; i++
+            }
+            while (i < s.length && s[i] === ' ') i++
+          }
+
+          // Get the function argument: {...}, (...), \frac, or next token
+          let arg = ''
+          if (s[i] === '{') {
+            const a = extractBraceArg(s, i)
+            if (a) { arg = latexToAlgebrite(a.content); i = a.end }
+          } else if (s[i] === '(') {
+            // Find matching close paren
+            let depth = 1; let j = i + 1
+            while (j < s.length && depth > 0) { if (s[j] === '(') depth++; else if (s[j] === ')') depth--; j++ }
+            arg = latexToAlgebrite(s.slice(i + 1, j - 1)); i = j
+          } else if (s.startsWith('\\frac', i) || s.startsWith('\\sqrt', i)) {
+            // \sin\frac{x}{2} → sin((x)/(2))
+            // We need to figure out how much we consumed — approximate by parsing until the frac/sqrt ends
+            const remaining = s.slice(i)
+            let consumed = 0
+            if (remaining.startsWith('\\frac')) {
+              consumed = 5
+              while (consumed < remaining.length && remaining[consumed] === ' ') consumed++
+              if (remaining[consumed] === '{') {
+                const a1 = extractBraceArg(remaining, consumed)
+                if (a1) { consumed = a1.end; if (remaining[consumed] === '{') { const a2 = extractBraceArg(remaining, consumed); if (a2) consumed = a2.end } }
+              }
+            } else if (remaining.startsWith('\\sqrt')) {
+              consumed = 5
+              if (remaining[consumed] === '{') { const a = extractBraceArg(remaining, consumed); if (a) consumed = a.end }
+            }
+            arg = latexToAlgebrite(remaining.slice(0, consumed))
+            i += consumed
+          } else {
+            // Implicit argument: grab digits and the next variable letter
+            // e.g., \sin 3x → sin(3*x), \cos x → cos(x)
+            let argStr = ''
+            while (i < s.length && /[0-9.]/.test(s[i])) { argStr += s[i]; i++ }
+            // Grab one variable letter (or a group of letters that aren't a command)
+            if (i < s.length && /[a-zA-Z]/.test(s[i]) && s[i - 1] !== '\\') {
+              if (argStr.length > 0) argStr += '*' // implicit mult: 3x → 3*x
+              argStr += s[i]; i++
+            }
+            if (argStr) {
+              arg = argStr
+            } else {
+              // No argument found — just output the function name
+              result += fn
+              continue
+            }
+          }
+
+          result += `${fn}(${arg})${powerSuffix}`
+          continue
+        }
         if (constMap[cmd]) { result += constMap[cmd]; i += cmdLen; continue }
         // Unknown command — skip the backslash, keep the name
         result += cmd; i += cmdLen; continue
@@ -282,10 +352,20 @@ export function latexToAlgebrite(latex: string): string {
 
   s = result
 
+  // Convert e^(...) → exp(...)
+  s = s.replace(/\be\^(\([^)]+\))/g, 'exp$1')      // e^(stuff) → exp(stuff)
+  s = s.replace(/\be\^([a-zA-Z])/g, 'exp($1)')      // e^x → exp(x)
+  s = s.replace(/\be\^(\d)/g, 'exp($1)')             // e^2 → exp(2)
+
+  // Simplify parenthesized exponents: ^(2) → ^2
+  s = s.replace(/\^\((\d+)\)/g, '^$1')
+
   // Implicit multiplication
-  s = s.replace(/(\d)([a-zA-Z])/g, '$1*$2')
-  s = s.replace(/\)\(/g, ')*(')
-  s = s.replace(/\)([a-zA-Z])/g, ')*$1')
+  s = s.replace(/(\d)([a-zA-Z])/g, '$1*$2')          // 3x → 3*x
+  s = s.replace(/\)\(/g, ')*(')                       // )( → )*(
+  s = s.replace(/\)([a-zA-Z])/g, ')*$1')             // )x → )*x
+  // Letter before function name: b*sec, x*sin, etc.
+  s = s.replace(/([a-zA-Z])(sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|ln|log|exp|sqrt|abs)\(/g, '$1*$2(')
 
   s = s.replace(/\s+/g, ' ').trim()
   return s
