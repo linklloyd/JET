@@ -11,6 +11,8 @@ import { Play, Pause, Camera, Loader2, ImagePlus, Download, FlipVertical, Upload
 import { downloadBlob, canvasToBlob, fileToDataURL } from '../../lib/utils'
 import { presets, directionLabels, ANGLES_4, ANGLES_8, loadSavedPresets, savePreset, deletePreset, type SavedCustomPreset } from './presets'
 import { cn } from '../../lib/utils'
+import { runPixelPipeline, DEFAULT_OPTIONS, type PipelineOptions } from '../image-to-pixelart/pixel-pipeline'
+import { PALETTE_PRESETS } from '../palette-editor/presets'
 
 interface MeshInfo {
   name: string
@@ -62,6 +64,10 @@ export function Spritesheet3DPage() {
   const [showSaveInput, setShowSaveInput] = useState(false)
   const [meshInfos, setMeshInfos] = useState<MeshInfo[]>([])
   const [textureFiles, setTextureFiles] = useState<Map<string, File>>(new Map())
+  const [pixelArtEnabled, setPixelArtEnabled] = useState(false)
+  const [pixelArtPalette, setPixelArtPalette] = useState('PICO-8')
+  const [pixelArtDither, setPixelArtDither] = useState<'none' | 'bayer4'>('none')
+  const [pixelArtOutline, setPixelArtOutline] = useState(true)
 
   // Load saved presets on mount
   useEffect(() => { setSavedPresets(loadSavedPresets()) }, [])
@@ -625,7 +631,32 @@ export function Spritesheet3DPage() {
 
     captureRenderer.dispose()
 
-    const blob = await canvasToBlob(sheetCanvas)
+    // Apply pixel art pipeline if enabled
+    let finalCanvas = sheetCanvas
+    if (pixelArtEnabled) {
+      const sourceData = sheetCtx.getImageData(0, 0, sheetCanvas.width, sheetCanvas.height)
+      const preset = PALETTE_PRESETS.find(p => p.name === pixelArtPalette)
+      const pipeOpts: PipelineOptions = {
+        ...DEFAULT_OPTIONS,
+        pixelSize: 1, // already at pixel resolution
+        paletteMode: 'preset',
+        paletteColors: preset?.colors ?? PALETTE_PRESETS[0].colors,
+        colorMetric: 'cielab',
+        ditherMode: pixelArtDither,
+        ditherStrength: 0.8,
+        outline: pixelArtOutline,
+        outlineColor: '#000000',
+        outlineWidth: 1,
+        scaleAlgorithm: 'nearest',
+      }
+      const result = runPixelPipeline(sourceData, pipeOpts)
+      finalCanvas = document.createElement('canvas')
+      finalCanvas.width = result.scaled.width
+      finalCanvas.height = result.scaled.height
+      finalCanvas.getContext('2d')!.putImageData(result.scaled, 0, 0)
+    }
+
+    const blob = await canvasToBlob(finalCanvas)
     const previewUrl = URL.createObjectURL(blob)
     setCapturedImage(previewUrl)
     setCapturedBlob(blob)
@@ -1175,6 +1206,31 @@ export function Spritesheet3DPage() {
               value={bgColor}
               onChange={(e) => setBgColor(e.target.value as typeof bgColor)}
             />
+
+            {/* Pixel Art Style */}
+            <div className="pt-1.5 border-t border-zinc-100 space-y-1.5">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={pixelArtEnabled} onChange={e => setPixelArtEnabled(e.target.checked)}
+                  className="accent-blue-600 rounded" />
+                <span className="text-[11px] font-medium text-zinc-600">Pixel Art Style</span>
+              </label>
+              {pixelArtEnabled && (
+                <div className="space-y-1.5 pl-5">
+                  <Select label="Palette" options={PALETTE_PRESETS.map(p => ({
+                    value: p.name, label: `${p.name} (${p.colors.length})`,
+                  }))} value={pixelArtPalette} onChange={e => setPixelArtPalette(e.target.value)} />
+                  <Select label="Dither" options={[
+                    { value: 'none', label: 'None' },
+                    { value: 'bayer4', label: 'Bayer 4×4' },
+                  ]} value={pixelArtDither} onChange={e => setPixelArtDither(e.target.value as 'none' | 'bayer4')} />
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={pixelArtOutline} onChange={e => setPixelArtOutline(e.target.checked)}
+                      className="accent-blue-600 rounded" />
+                    <span className="text-[10px] text-zinc-500">Outline</span>
+                  </label>
+                </div>
+              )}
+            </div>
 
             {/* Save / manage custom presets */}
             {presetKey === 'custom' && (
