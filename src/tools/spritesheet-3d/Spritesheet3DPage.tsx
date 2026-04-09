@@ -7,7 +7,8 @@ import { Button } from '../../components/ui/Button'
 import { Select } from '../../components/ui/Select'
 import { Slider } from '../../components/ui/Slider'
 import { ProgressBar } from '../../components/ui/ProgressBar'
-import { Play, Pause, Camera, Loader2, ImagePlus, Download, FlipVertical, Upload, FolderOpen, Save, Trash2, X } from 'lucide-react'
+import { Play, Pause, Camera, Loader2, ImagePlus, Download, FlipVertical, Upload, FolderOpen, Save, Trash2, X, ExternalLink } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { downloadBlob, canvasToBlob, fileToDataURL } from '../../lib/utils'
 import { presets, directionLabels, ANGLES_4, ANGLES_8, loadSavedPresets, savePreset, deletePreset, type SavedCustomPreset } from './presets'
 import { cn } from '../../lib/utils'
@@ -22,6 +23,7 @@ interface MeshInfo {
 }
 
 export function Spritesheet3DPage() {
+  const navigate = useNavigate()
   const containerRef = useRef<HTMLDivElement>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef = useRef<THREE.Scene | null>(null)
@@ -65,9 +67,14 @@ export function Spritesheet3DPage() {
   const [meshInfos, setMeshInfos] = useState<MeshInfo[]>([])
   const [textureFiles, setTextureFiles] = useState<Map<string, File>>(new Map())
   const [pixelArtEnabled, setPixelArtEnabled] = useState(false)
-  const [pixelArtPalette, setPixelArtPalette] = useState('PICO-8')
-  const [pixelArtDither, setPixelArtDither] = useState<'none' | 'bayer4'>('none')
-  const [pixelArtOutline, setPixelArtOutline] = useState(true)
+  const [pixelArtOpts, setPixelArtOpts] = useState<PipelineOptions>({
+    ...DEFAULT_OPTIONS,
+    pixelSize: 1, // already at pixel resolution for capture
+    paletteMode: 'preset',
+    paletteColors: PALETTE_PRESETS.find(p => p.name === 'PICO-8')?.colors,
+    outline: true,
+  })
+  const updatePA = (partial: Partial<PipelineOptions>) => setPixelArtOpts(prev => ({ ...prev, ...partial }))
 
   // Load saved presets on mount
   useEffect(() => { setSavedPresets(loadSavedPresets()) }, [])
@@ -635,21 +642,7 @@ export function Spritesheet3DPage() {
     let finalCanvas = sheetCanvas
     if (pixelArtEnabled) {
       const sourceData = sheetCtx.getImageData(0, 0, sheetCanvas.width, sheetCanvas.height)
-      const preset = PALETTE_PRESETS.find(p => p.name === pixelArtPalette)
-      const pipeOpts: PipelineOptions = {
-        ...DEFAULT_OPTIONS,
-        pixelSize: 1, // already at pixel resolution
-        paletteMode: 'preset',
-        paletteColors: preset?.colors ?? PALETTE_PRESETS[0].colors,
-        colorMetric: 'cielab',
-        ditherMode: pixelArtDither,
-        ditherStrength: 0.8,
-        outline: pixelArtOutline,
-        outlineColor: '#000000',
-        outlineWidth: 1,
-        scaleAlgorithm: 'nearest',
-      }
-      const result = runPixelPipeline(sourceData, pipeOpts)
+      const result = runPixelPipeline(sourceData, pixelArtOpts)
       finalCanvas = document.createElement('canvas')
       finalCanvas.width = result.scaled.width
       finalCanvas.height = result.scaled.height
@@ -911,10 +904,23 @@ export function Spritesheet3DPage() {
                   style={{ imageRendering: 'pixelated' }}
                 />
               </div>
-              <p className="text-[11px] text-zinc-400 mt-2">
-                {currentPreset.angles.length} angles × {frameCount} frames = {currentPreset.angles.length * frameCount} total |{' '}
-                {frameCount * captureSize} × {currentPreset.angles.length * captureSize}px
-              </p>
+              <div className="flex items-center justify-between mt-2">
+                <p className="text-[11px] text-zinc-400">
+                  {currentPreset.angles.length} angles × {frameCount} frames = {currentPreset.angles.length * frameCount} total |{' '}
+                  {frameCount * captureSize} × {currentPreset.angles.length * captureSize}px
+                </p>
+                <button
+                  onClick={() => {
+                    if (capturedImage) {
+                      sessionStorage.setItem('jet-pixelart-import', capturedImage)
+                      navigate('/image-to-pixelart')
+                    }
+                  }}
+                  className="text-[11px] text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                >
+                  <ExternalLink size={11} /> Edit in Pixel Art
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1215,18 +1221,50 @@ export function Spritesheet3DPage() {
                 <span className="text-[11px] font-medium text-zinc-600">Pixel Art Style</span>
               </label>
               {pixelArtEnabled && (
-                <div className="space-y-1.5 pl-5">
-                  <Select label="Palette" options={PALETTE_PRESETS.map(p => ({
-                    value: p.name, label: `${p.name} (${p.colors.length})`,
-                  }))} value={pixelArtPalette} onChange={e => setPixelArtPalette(e.target.value)} />
+                <div className="space-y-1.5 pl-2">
+                  <Select label="Palette" options={[
+                    { value: 'auto', label: 'Auto' },
+                    ...PALETTE_PRESETS.map(p => ({ value: p.name, label: `${p.name} (${p.colors.length})` })),
+                  ]} value={pixelArtOpts.paletteMode === 'auto' ? 'auto' : (PALETTE_PRESETS.find(p => JSON.stringify(p.colors) === JSON.stringify(pixelArtOpts.paletteColors))?.name || 'PICO-8')}
+                  onChange={e => {
+                    if (e.target.value === 'auto') {
+                      updatePA({ paletteMode: 'auto' })
+                    } else {
+                      const p = PALETTE_PRESETS.find(pr => pr.name === e.target.value)
+                      updatePA({ paletteMode: 'preset', paletteColors: p?.colors })
+                    }
+                  }} />
+                  {pixelArtOpts.paletteMode === 'auto' && (
+                    <Slider label="Colors" displayValue={String(pixelArtOpts.colorCount)}
+                      min={2} max={64} value={pixelArtOpts.colorCount}
+                      onChange={e => updatePA({ colorCount: +(e.target as HTMLInputElement).value })} />
+                  )}
                   <Select label="Dither" options={[
                     { value: 'none', label: 'None' },
+                    { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
+                    { value: 'bayer2', label: 'Bayer 2×2' },
                     { value: 'bayer4', label: 'Bayer 4×4' },
-                  ]} value={pixelArtDither} onChange={e => setPixelArtDither(e.target.value as 'none' | 'bayer4')} />
+                    { value: 'bayer8', label: 'Bayer 8×8' },
+                  ]} value={pixelArtOpts.ditherMode} onChange={e => updatePA({ ditherMode: e.target.value as PipelineOptions['ditherMode'] })} />
+                  <Select label="Scaling" options={[
+                    { value: 'nearest', label: 'Nearest' },
+                    { value: 'epx', label: 'EPX / Scale2x' },
+                    { value: 'mmpx', label: 'MMPX' },
+                  ]} value={pixelArtOpts.scaleAlgorithm} onChange={e => updatePA({ scaleAlgorithm: e.target.value as PipelineOptions['scaleAlgorithm'] })} />
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={pixelArtOutline} onChange={e => setPixelArtOutline(e.target.checked)}
+                    <input type="checkbox" checked={pixelArtOpts.outline} onChange={e => updatePA({ outline: e.target.checked })}
                       className="accent-blue-600 rounded" />
                     <span className="text-[10px] text-zinc-500">Outline</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={pixelArtOpts.inline} onChange={e => updatePA({ inline: e.target.checked })}
+                      className="accent-blue-600 rounded" />
+                    <span className="text-[10px] text-zinc-500">Inline edges</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={pixelArtOpts.edgePolish} onChange={e => updatePA({ edgePolish: e.target.checked })}
+                      className="accent-blue-600 rounded" />
+                    <span className="text-[10px] text-zinc-500">Edge polish</span>
                   </label>
                 </div>
               )}

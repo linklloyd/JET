@@ -14,7 +14,10 @@ import { runPixelPipeline, DEFAULT_OPTIONS, type PipelineOptions, type DitherMod
 type PageTab = 'basic' | 'advanced'
 
 export function ImageToPixelartPage() {
-  const [tab, setTab] = useState<PageTab>('basic')
+  // Auto-switch to advanced if imported from another tool
+  const [tab, setTab] = useState<PageTab>(() =>
+    sessionStorage.getItem('jet-pixelart-import') ? 'advanced' : 'basic'
+  )
 
   return (
     <div className="space-y-6">
@@ -76,6 +79,17 @@ function AdvancedPixelart() {
   const [processingGif, setProcessingGif] = useState(false)
 
   const update = (partial: Partial<PipelineOptions>) => setOpts(prev => ({ ...prev, ...partial }))
+
+  // Auto-load imported image from 3D spritesheet or other tools
+  useEffect(() => {
+    const imported = sessionStorage.getItem('jet-pixelart-import')
+    if (imported) {
+      sessionStorage.removeItem('jet-pixelart-import')
+      const img = new Image()
+      img.onload = () => setImage(img)
+      img.src = imported
+    }
+  }, [])
 
   const handleFiles = async (files: File[]) => {
     const file = files[0]

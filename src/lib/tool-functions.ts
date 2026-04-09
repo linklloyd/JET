@@ -3,6 +3,8 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { canvasToBlob } from '../lib/utils'
 import { encodeGif } from '../lib/gif-encoder'
+import { runPixelPipeline, DEFAULT_OPTIONS, type PipelineOptions, type DitherMode, type ScaleAlgorithm, type ColorMetric } from '../tools/image-to-pixelart/pixel-pipeline'
+import { PALETTE_PRESETS } from '../tools/palette-editor/presets'
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -149,92 +151,50 @@ export async function spriteToGif(
 
 export async function imageToPixelArt(
   input: Blob,
-  config: { pixelSize: number; colorCount: number; outline?: boolean; dithering?: boolean }
+  config: Record<string, unknown>
 ): Promise<Blob> {
   const img = await blobToImage(input)
-  const { pixelSize, colorCount } = config
 
-  const smallW = Math.max(1, Math.round(img.width / pixelSize))
-  const smallH = Math.max(1, Math.round(img.height / pixelSize))
+  // Get source ImageData
+  const srcCanvas = document.createElement('canvas')
+  srcCanvas.width = img.width; srcCanvas.height = img.height
+  srcCanvas.getContext('2d')!.drawImage(img, 0, 0)
+  const source = srcCanvas.getContext('2d')!.getImageData(0, 0, img.width, img.height)
 
-  // Downscale
-  const smallCanvas = document.createElement('canvas')
-  smallCanvas.width = smallW
-  smallCanvas.height = smallH
-  const smallCtx = smallCanvas.getContext('2d')!
-  smallCtx.drawImage(img, 0, 0, smallW, smallH)
+  // Build PipelineOptions from config
+  const paletteMode = (config.paletteMode as string) || 'auto'
+  const presetName = (config.palettePreset as string) || 'PICO-8'
+  const preset = PALETTE_PRESETS.find(p => p.name === presetName)
 
-  // Quantize colors
-  const imageData = smallCtx.getImageData(0, 0, smallW, smallH)
-  const data = imageData.data
-
-  // Simple uniform quantization
-  const levels = Math.max(2, Math.round(Math.cbrt(colorCount)))
-  const step = 255 / (levels - 1)
-
-  if (config.dithering) {
-    // Floyd-Steinberg dithering during quantization
-    const err = new Float32Array(smallW * smallH * 3)
-    for (let i = 0; i < smallW * smallH; i++) {
-      err[i * 3] = data[i * 4]
-      err[i * 3 + 1] = data[i * 4 + 1]
-      err[i * 3 + 2] = data[i * 4 + 2]
-    }
-    for (let y = 0; y < smallH; y++) {
-      for (let x = 0; x < smallW; x++) {
-        const idx = y * smallW + x
-        const or = Math.max(0, Math.min(255, Math.round(err[idx * 3])))
-        const og = Math.max(0, Math.min(255, Math.round(err[idx * 3 + 1])))
-        const ob = Math.max(0, Math.min(255, Math.round(err[idx * 3 + 2])))
-        const qr = Math.round(Math.round(or / step) * step)
-        const qg = Math.round(Math.round(og / step) * step)
-        const qb = Math.round(Math.round(ob / step) * step)
-        data[idx * 4] = qr; data[idx * 4 + 1] = qg; data[idx * 4 + 2] = qb
-        const er = or - qr, eg = og - qg, eb = ob - qb
-        const spread = [[x+1,y,7/16],[x-1,y+1,3/16],[x,y+1,5/16],[x+1,y+1,1/16]] as const
-        for (const [sx,sy,w] of spread) {
-          if (sx >= 0 && sx < smallW && sy < smallH) {
-            const si = sy * smallW + sx
-            err[si*3] += er*w; err[si*3+1] += eg*w; err[si*3+2] += eb*w
-          }
-        }
-      }
-    }
-  } else {
-    for (let i = 0; i < data.length; i += 4) {
-      data[i] = Math.round(Math.round(data[i] / step) * step)
-      data[i + 1] = Math.round(Math.round(data[i + 1] / step) * step)
-      data[i + 2] = Math.round(Math.round(data[i + 2] / step) * step)
-    }
+  const opts: PipelineOptions = {
+    ...DEFAULT_OPTIONS,
+    pixelSize: (config.pixelSize as number) || 8,
+    brightness: (config.brightness as number) || 0,
+    contrast: (config.contrast as number) || 0,
+    saturation: (config.saturation as number) || 0,
+    paletteMode: paletteMode as 'auto' | 'preset',
+    paletteColors: preset?.colors,
+    colorCount: (config.colorCount as number) || 16,
+    colorMetric: ((config.colorMetric as string) || 'cielab') as ColorMetric,
+    ditherMode: ((config.ditherMode as string) || 'none') as DitherMode,
+    ditherStrength: (config.ditherStrength as number) ?? 1.0,
+    outline: !!config.outline,
+    outlineColor: (config.outlineColor as string) || '#000000',
+    outlineWidth: 1,
+    inline: !!config.inline,
+    inlineThreshold: (config.inlineThreshold as number) ?? 0.3,
+    inlineOpacity: 0.4,
+    collision: false,
+    collisionMode: 'bbox',
+    scaleAlgorithm: ((config.scaleAlgorithm as string) || 'nearest') as ScaleAlgorithm,
+    edgePolish: !!config.edgePolish,
   }
 
-  smallCtx.putImageData(imageData, 0, 0)
+  const result = runPixelPipeline(source, opts)
 
-  // Upscale with nearest neighbor
   const outCanvas = document.createElement('canvas')
-  outCanvas.width = img.width
-  outCanvas.height = img.height
-  const outCtx = outCanvas.getContext('2d')!
-  outCtx.imageSmoothingEnabled = false
-  outCtx.drawImage(smallCanvas, 0, 0, img.width, img.height)
-
-  // Draw pixel outlines
-  if (config.outline) {
-    outCtx.strokeStyle = 'rgba(0,0,0,0.15)'
-    outCtx.lineWidth = 1
-    for (let x = 0; x <= smallW; x++) {
-      outCtx.beginPath()
-      outCtx.moveTo(x * pixelSize, 0)
-      outCtx.lineTo(x * pixelSize, img.height)
-      outCtx.stroke()
-    }
-    for (let y = 0; y <= smallH; y++) {
-      outCtx.beginPath()
-      outCtx.moveTo(0, y * pixelSize)
-      outCtx.lineTo(img.width, y * pixelSize)
-      outCtx.stroke()
-    }
-  }
+  outCanvas.width = result.scaled.width; outCanvas.height = result.scaled.height
+  outCanvas.getContext('2d')!.putImageData(result.scaled, 0, 0)
 
   return canvasToBlob(outCanvas, 'image/png')
 }
