@@ -2,12 +2,390 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { FileDropzone } from '../../components/ui/FileDropzone'
 import { Button } from '../../components/ui/Button'
 import { Slider } from '../../components/ui/Slider'
-import { Download, Loader2 } from 'lucide-react'
+import { Select } from '../../components/ui/Select'
+import { Download, Loader2, Copy, Eye, EyeOff } from 'lucide-react'
 import { fileToDataURL, loadImage, downloadBlob, canvasToBlob } from '../../lib/utils'
 import { decodeGifFrames, type GifFrame } from '../../lib/gif-decoder'
 import { encodeGif } from '../../lib/gif-encoder'
+import { cn } from '../../lib/utils'
+import { PALETTE_PRESETS } from '../palette-editor/presets'
+import { runPixelPipeline, DEFAULT_OPTIONS, type PipelineOptions, type DitherMode, type ScaleAlgorithm, type CollisionMode, type CollisionData } from './pixel-pipeline'
+
+type PageTab = 'basic' | 'advanced'
 
 export function ImageToPixelartPage() {
+  const [tab, setTab] = useState<PageTab>('basic')
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-zinc-900">Image to Pixel Art</h2>
+        <p className="text-sm text-zinc-500 mt-2">
+          {tab === 'basic'
+            ? 'Convert any image into pixel art with adjustable resolution and colors'
+            : 'Advanced PixelOver-inspired pipeline with CIELab matching, dithering, scaling, and edge detection'}
+        </p>
+      </div>
+
+      {/* Tab toggle */}
+      <div className="flex rounded-lg border border-zinc-200 overflow-hidden w-fit">
+        <button
+          onClick={() => setTab('basic')}
+          className={cn(
+            'px-4 py-2 text-sm font-medium transition-colors',
+            tab === 'basic' ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
+          )}
+        >
+          Basic
+        </button>
+        <button
+          onClick={() => setTab('advanced')}
+          className={cn(
+            'px-4 py-2 text-sm font-medium transition-colors',
+            tab === 'advanced' ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-500 hover:bg-zinc-50'
+          )}
+        >
+          Advanced
+        </button>
+      </div>
+
+      {tab === 'basic' ? <BasicPixelart /> : <AdvancedPixelart />}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Advanced Pipeline Tab
+// ═══════════════════════════════════════════════════════════════════════════
+
+function AdvancedPixelart() {
+  const [image, setImage] = useState<HTMLImageElement | null>(null)
+  const [opts, setOpts] = useState<PipelineOptions>({ ...DEFAULT_OPTIONS })
+  const [resultUrl, setResultUrl] = useState<string | null>(null)
+  const [smallUrl, setSmallUrl] = useState<string | null>(null)
+  const [collision, setCollision] = useState<CollisionData | null>(null)
+  const [showCollision, setShowCollision] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const update = (partial: Partial<PipelineOptions>) => setOpts(prev => ({ ...prev, ...partial }))
+
+  const handleFiles = async (files: File[]) => {
+    const url = await fileToDataURL(files[0])
+    const img = await loadImage(url)
+    setImage(img)
+    setResultUrl(null)
+    setSmallUrl(null)
+    setCollision(null)
+  }
+
+  // Run pipeline whenever image or options change
+  const runPipeline = useCallback(() => {
+    if (!image) return
+
+    // Get source ImageData
+    const srcCanvas = document.createElement('canvas')
+    srcCanvas.width = image.width; srcCanvas.height = image.height
+    const srcCtx = srcCanvas.getContext('2d')!
+    srcCtx.drawImage(image, 0, 0)
+    const source = srcCtx.getImageData(0, 0, image.width, image.height)
+
+    const result = runPixelPipeline(source, opts)
+
+    // Render scaled result
+    const outCanvas = document.createElement('canvas')
+    outCanvas.width = result.scaled.width; outCanvas.height = result.scaled.height
+    const outCtx = outCanvas.getContext('2d')!
+    outCtx.putImageData(result.scaled, 0, 0)
+
+    // Draw collision overlay if enabled
+    if (showCollision && result.collision) {
+      const factor = result.scaled.width / result.small.width
+      outCtx.strokeStyle = '#ff0044'
+      outCtx.lineWidth = 2
+      if (result.collision.type === 'bbox' && result.collision.width! > 0) {
+        outCtx.strokeRect(
+          result.collision.x! * factor, result.collision.y! * factor,
+          result.collision.width! * factor, result.collision.height! * factor
+        )
+      } else if (result.collision.type === 'polygon' && result.collision.points!.length > 2) {
+        outCtx.beginPath()
+        const pts = result.collision.points!
+        outCtx.moveTo(pts[0][0] * factor, pts[0][1] * factor)
+        for (let i = 1; i < pts.length; i++) outCtx.lineTo(pts[i][0] * factor, pts[i][1] * factor)
+        outCtx.closePath()
+        outCtx.stroke()
+      }
+    }
+
+    if (resultUrl) URL.revokeObjectURL(resultUrl)
+    if (smallUrl) URL.revokeObjectURL(smallUrl)
+
+    outCanvas.toBlob(blob => {
+      if (blob) setResultUrl(URL.createObjectURL(blob))
+    })
+
+    // Small version
+    const smallCanvas = document.createElement('canvas')
+    smallCanvas.width = result.small.width; smallCanvas.height = result.small.height
+    smallCanvas.getContext('2d')!.putImageData(result.small, 0, 0)
+    smallCanvas.toBlob(blob => {
+      if (blob) setSmallUrl(URL.createObjectURL(blob))
+    })
+
+    setCollision(result.collision ?? null)
+  }, [image, opts, showCollision])
+
+  useEffect(() => { runPipeline() }, [runPipeline])
+
+  const handleDownload = async () => {
+    if (!image) return
+    const srcCanvas = document.createElement('canvas')
+    srcCanvas.width = image.width; srcCanvas.height = image.height
+    srcCanvas.getContext('2d')!.drawImage(image, 0, 0)
+    const source = srcCanvas.getContext('2d')!.getImageData(0, 0, image.width, image.height)
+    const result = runPixelPipeline(source, opts)
+    const outCanvas = document.createElement('canvas')
+    outCanvas.width = result.scaled.width; outCanvas.height = result.scaled.height
+    outCanvas.getContext('2d')!.putImageData(result.scaled, 0, 0)
+    const blob = await canvasToBlob(outCanvas)
+    downloadBlob(blob, `pixelart_advanced_${opts.pixelSize}px.png`)
+  }
+
+  const handleDownloadSmall = async () => {
+    if (!image) return
+    const srcCanvas = document.createElement('canvas')
+    srcCanvas.width = image.width; srcCanvas.height = image.height
+    srcCanvas.getContext('2d')!.drawImage(image, 0, 0)
+    const source = srcCanvas.getContext('2d')!.getImageData(0, 0, image.width, image.height)
+    const result = runPixelPipeline(source, opts)
+    const outCanvas = document.createElement('canvas')
+    outCanvas.width = result.small.width; outCanvas.height = result.small.height
+    outCanvas.getContext('2d')!.putImageData(result.small, 0, 0)
+    const blob = await canvasToBlob(outCanvas)
+    downloadBlob(blob, `pixelart_${result.small.width}x${result.small.height}.png`)
+  }
+
+  const handleCopyCollision = () => {
+    if (!collision) return
+    navigator.clipboard.writeText(JSON.stringify(collision, null, 2))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <>
+      <FileDropzone onFiles={handleFiles} accept="image/*" label="Drop an image to pixelate" />
+
+      {image && (
+        <div className="grid grid-cols-[1fr_280px] gap-5">
+          {/* Preview */}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-white border border-zinc-200 rounded-lg p-3">
+                <p className="text-xs font-medium text-zinc-500 mb-2">Original ({image.width}×{image.height})</p>
+                <div className="overflow-auto max-h-72 rounded" style={{
+                  backgroundImage: 'repeating-conic-gradient(#e4e4e7 0% 25%, #f4f4f5 0% 50%)',
+                  backgroundSize: '12px 12px',
+                }}>
+                  <img src={image.src} alt="Original" className="max-w-full" />
+                </div>
+              </div>
+              <div className="bg-white border border-zinc-200 rounded-lg p-3">
+                <p className="text-xs font-medium text-zinc-500 mb-2">
+                  Pixel Art ({Math.ceil(image.width / opts.pixelSize)}×{Math.ceil(image.height / opts.pixelSize)})
+                </p>
+                <div className="overflow-auto max-h-72 rounded" style={{
+                  backgroundImage: 'repeating-conic-gradient(#e4e4e7 0% 25%, #f4f4f5 0% 50%)',
+                  backgroundSize: '12px 12px',
+                  imageRendering: 'pixelated',
+                }}>
+                  {resultUrl ? (
+                    <img src={resultUrl} alt="Result" className="max-w-full" style={{ imageRendering: 'pixelated' }} />
+                  ) : (
+                    <div className="flex items-center justify-center h-32 text-zinc-400 text-xs">Processing...</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={handleDownload} size="sm" className="flex-1">
+                <Download size={14} /> Download (upscaled)
+              </Button>
+              <Button onClick={handleDownloadSmall} size="sm" variant="secondary" className="flex-1">
+                <Download size={14} /> Download (1:1 pixel)
+              </Button>
+            </div>
+          </div>
+
+          {/* Pipeline Controls */}
+          <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-1">
+            {/* Downscale */}
+            <div className="border border-zinc-200 rounded-lg p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Downscale</p>
+              <Slider label="Pixel Size" displayValue={`${opts.pixelSize}px`}
+                min={2} max={32} value={opts.pixelSize}
+                onChange={e => update({ pixelSize: +(e.target as HTMLInputElement).value })} />
+            </div>
+
+            {/* Color Grading */}
+            <div className="border border-zinc-200 rounded-lg p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Color Grading</p>
+              <Slider label="Brightness" displayValue={String(opts.brightness)}
+                min={-100} max={100} value={opts.brightness}
+                onChange={e => update({ brightness: +(e.target as HTMLInputElement).value })} />
+              <Slider label="Contrast" displayValue={String(opts.contrast)}
+                min={-100} max={100} value={opts.contrast}
+                onChange={e => update({ contrast: +(e.target as HTMLInputElement).value })} />
+              <Slider label="Saturation" displayValue={String(opts.saturation)}
+                min={-100} max={100} value={opts.saturation}
+                onChange={e => update({ saturation: +(e.target as HTMLInputElement).value })} />
+            </div>
+
+            {/* Palette */}
+            <div className="border border-zinc-200 rounded-lg p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Palette</p>
+              <Select label="Mode" options={[
+                { value: 'auto', label: 'Auto (Median Cut)' },
+                { value: 'preset', label: 'Preset Palette' },
+              ]} value={opts.paletteMode} onChange={e => update({ paletteMode: e.target.value as 'auto' | 'preset' })} />
+
+              {opts.paletteMode === 'preset' && (
+                <Select label="Preset" options={PALETTE_PRESETS.map(p => ({
+                  value: p.name, label: `${p.name} (${p.colors.length})`,
+                }))} value={PALETTE_PRESETS[0].name} onChange={e => {
+                  const preset = PALETTE_PRESETS.find(p => p.name === e.target.value)
+                  if (preset) update({ paletteColors: preset.colors })
+                }} />
+              )}
+
+              {opts.paletteMode === 'auto' && (
+                <Slider label="Colors" displayValue={String(opts.colorCount)}
+                  min={2} max={64} value={opts.colorCount}
+                  onChange={e => update({ colorCount: +(e.target as HTMLInputElement).value })} />
+              )}
+
+              <Select label="Distance" options={[
+                { value: 'cielab', label: 'CIELab (perceptual)' },
+                { value: 'rgb', label: 'RGB (euclidean)' },
+              ]} value={opts.colorMetric} onChange={e => update({ colorMetric: e.target.value as 'rgb' | 'cielab' })} />
+            </div>
+
+            {/* Dithering */}
+            <div className="border border-zinc-200 rounded-lg p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Dithering</p>
+              <Select label="Type" options={[
+                { value: 'none', label: 'None' },
+                { value: 'floyd-steinberg', label: 'Floyd-Steinberg' },
+                { value: 'bayer2', label: 'Bayer 2×2' },
+                { value: 'bayer4', label: 'Bayer 4×4' },
+                { value: 'bayer8', label: 'Bayer 8×8' },
+              ]} value={opts.ditherMode} onChange={e => update({ ditherMode: e.target.value as DitherMode })} />
+              {opts.ditherMode.startsWith('bayer') && (
+                <Slider label="Strength" displayValue={opts.ditherStrength.toFixed(1)}
+                  min={0} max={1} step={0.1} value={opts.ditherStrength}
+                  onChange={e => update({ ditherStrength: +(e.target as HTMLInputElement).value })} />
+              )}
+            </div>
+
+            {/* Edges & Outlines */}
+            <div className="border border-zinc-200 rounded-lg p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Edges & Outlines</p>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={opts.outline} onChange={e => update({ outline: e.target.checked })}
+                  className="accent-blue-600 rounded" />
+                <span className="text-xs font-medium text-zinc-600">Outline</span>
+              </label>
+              {opts.outline && (
+                <div className="flex gap-2 items-center pl-5">
+                  <input type="color" value={opts.outlineColor} onChange={e => update({ outlineColor: e.target.value })}
+                    className="w-6 h-6 rounded border border-zinc-200 cursor-pointer" />
+                  <div className="flex rounded border border-zinc-200 overflow-hidden">
+                    {([1, 2] as const).map(w => (
+                      <button key={w} onClick={() => update({ outlineWidth: w })}
+                        className={cn('px-2 py-0.5 text-[10px] font-medium',
+                          opts.outlineWidth === w ? 'bg-zinc-800 text-white' : 'bg-white text-zinc-500'
+                        )}>{w}px</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={opts.inline} onChange={e => update({ inline: e.target.checked })}
+                  className="accent-blue-600 rounded" />
+                <span className="text-xs font-medium text-zinc-600">Inline edges</span>
+              </label>
+              {opts.inline && (
+                <div className="pl-5 space-y-1">
+                  <Slider label="Threshold" displayValue={opts.inlineThreshold.toFixed(1)}
+                    min={0.05} max={1} step={0.05} value={opts.inlineThreshold}
+                    onChange={e => update({ inlineThreshold: +(e.target as HTMLInputElement).value })} />
+                  <Slider label="Opacity" displayValue={opts.inlineOpacity.toFixed(1)}
+                    min={0.1} max={1} step={0.1} value={opts.inlineOpacity}
+                    onChange={e => update({ inlineOpacity: +(e.target as HTMLInputElement).value })} />
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={opts.collision} onChange={e => update({ collision: e.target.checked })}
+                  className="accent-blue-600 rounded" />
+                <span className="text-xs font-medium text-zinc-600">Collision border</span>
+              </label>
+              {opts.collision && (
+                <div className="pl-5 space-y-1.5">
+                  <Select label="Mode" options={[
+                    { value: 'bbox', label: 'Bounding Box' },
+                    { value: 'silhouette', label: 'Pixel Silhouette' },
+                  ]} value={opts.collisionMode} onChange={e => update({ collisionMode: e.target.value as CollisionMode })} />
+                  <div className="flex gap-1.5">
+                    <button onClick={() => setShowCollision(!showCollision)}
+                      className="flex items-center gap-1 text-[10px] text-zinc-500 hover:text-zinc-700 font-medium">
+                      {showCollision ? <EyeOff size={10} /> : <Eye size={10} />}
+                      {showCollision ? 'Hide' : 'Show'} overlay
+                    </button>
+                    {collision && (
+                      <button onClick={handleCopyCollision}
+                        className="flex items-center gap-1 text-[10px] text-blue-600 hover:text-blue-700 font-medium">
+                        <Copy size={10} /> {copied ? 'Copied!' : 'Copy JSON'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Scaling */}
+            <div className="border border-zinc-200 rounded-lg p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Pixel Scaling</p>
+              <Select label="Algorithm" options={[
+                { value: 'nearest', label: 'Nearest Neighbor' },
+                { value: 'epx', label: 'Scale2x / EPX' },
+                { value: 'mmpx', label: 'MMPX (luma-based)' },
+                { value: 'cleanEdge', label: 'Clean Edge' },
+              ]} value={opts.scaleAlgorithm} onChange={e => update({ scaleAlgorithm: e.target.value as ScaleAlgorithm })} />
+            </div>
+
+            {/* Polish */}
+            <div className="border border-zinc-200 rounded-lg p-3 space-y-2">
+              <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wide">Polish</p>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={opts.edgePolish} onChange={e => update({ edgePolish: e.target.checked })}
+                  className="accent-blue-600 rounded" />
+                <span className="text-xs font-medium text-zinc-600">Edge polish (smooth staircases)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Basic Tab (original)
+// ═══════════════════════════════════════════════════════════════════════════
+
+function BasicPixelart() {
   const [image, setImage] = useState<HTMLImageElement | null>(null)
   const [pixelSize, setPixelSize] = useState(8)
   const [colorCount, setColorCount] = useState(16)
@@ -199,12 +577,7 @@ export function ImageToPixelartPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-zinc-900">Image to Pixel Art</h2>
-        <p className="text-sm text-zinc-500 mt-2">Convert any image into pixel art with adjustable resolution and colors</p>
-      </div>
-
+    <>
       <FileDropzone onFiles={handleFiles} accept="image/*,.gif" label="Drop an image or GIF to pixelate" description="Supports PNG, JPG, and animated GIF files" />
 
       {image && (
@@ -303,7 +676,7 @@ export function ImageToPixelartPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }
 
