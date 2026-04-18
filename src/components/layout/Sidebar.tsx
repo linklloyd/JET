@@ -82,6 +82,7 @@ const defaultSections: Section[] = [
           { path: '/probability/tstudent', label: 'T-Student', icon: BarChart3 },
           { path: '/probability/chi-square', label: 'Chi-Cuadrada', icon: BarChart3 },
           { path: '/probability/fisher', label: 'Fisher (F)', icon: BarChart3 },
+          { path: '/probability/gauss', label: 'Gauss (Tabla Z)', icon: BarChart3 },
         ],
       },
       {

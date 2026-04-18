@@ -554,6 +554,232 @@ export function fisherBase(d1: number, d2: number): ContinuousResult {
   }
 }
 
+// ─── Gauss (Normal con tabla Z fija) ───────────────────────────────────
+
+/**
+ * Z-table: P(0 ≤ Z ≤ z) for z = 0.00 to 3.09 (310 values)
+ * Source: Standard normal distribution table (Abramowitz & Stegun reference)
+ */
+export const Z_TABLE_DATA: number[] = [
+  // z = 0.0x
+  0.0000, 0.0040, 0.0080, 0.0120, 0.0160, 0.0199, 0.0239, 0.0279, 0.0319, 0.0359,
+  // z = 0.1x
+  0.0398, 0.0438, 0.0478, 0.0517, 0.0557, 0.0596, 0.0636, 0.0675, 0.0714, 0.0753,
+  // z = 0.2x
+  0.0793, 0.0832, 0.0871, 0.0910, 0.0948, 0.0987, 0.1026, 0.1064, 0.1103, 0.1141,
+  // z = 0.3x
+  0.1179, 0.1217, 0.1255, 0.1293, 0.1331, 0.1368, 0.1406, 0.1443, 0.1480, 0.1517,
+  // z = 0.4x
+  0.1554, 0.1591, 0.1628, 0.1664, 0.1700, 0.1736, 0.1772, 0.1808, 0.1844, 0.1879,
+  // z = 0.5x
+  0.1915, 0.1950, 0.1985, 0.2019, 0.2054, 0.2088, 0.2123, 0.2157, 0.2190, 0.2224,
+  // z = 0.6x
+  0.2257, 0.2291, 0.2324, 0.2357, 0.2389, 0.2422, 0.2454, 0.2486, 0.2517, 0.2549,
+  // z = 0.7x
+  0.2580, 0.2611, 0.2642, 0.2673, 0.2704, 0.2734, 0.2764, 0.2794, 0.2823, 0.2852,
+  // z = 0.8x
+  0.2881, 0.2910, 0.2939, 0.2967, 0.2995, 0.3023, 0.3051, 0.3078, 0.3106, 0.3133,
+  // z = 0.9x
+  0.3159, 0.3186, 0.3212, 0.3238, 0.3264, 0.3289, 0.3315, 0.3340, 0.3365, 0.3389,
+  // z = 1.0x
+  0.3413, 0.3438, 0.3461, 0.3485, 0.3508, 0.3531, 0.3554, 0.3577, 0.3599, 0.3621,
+  // z = 1.1x
+  0.3643, 0.3665, 0.3686, 0.3708, 0.3729, 0.3749, 0.3770, 0.3790, 0.3810, 0.3830,
+  // z = 1.2x
+  0.3849, 0.3869, 0.3888, 0.3907, 0.3925, 0.3944, 0.3962, 0.3980, 0.3997, 0.4015,
+  // z = 1.3x
+  0.4032, 0.4049, 0.4066, 0.4082, 0.4099, 0.4115, 0.4131, 0.4147, 0.4162, 0.4177,
+  // z = 1.4x
+  0.4192, 0.4207, 0.4222, 0.4236, 0.4251, 0.4265, 0.4279, 0.4292, 0.4306, 0.4319,
+  // z = 1.5x
+  0.4332, 0.4345, 0.4357, 0.4370, 0.4382, 0.4394, 0.4406, 0.4418, 0.4429, 0.4441,
+  // z = 1.6x
+  0.4452, 0.4463, 0.4474, 0.4484, 0.4495, 0.4505, 0.4515, 0.4525, 0.4535, 0.4545,
+  // z = 1.7x
+  0.4554, 0.4564, 0.4573, 0.4582, 0.4591, 0.4599, 0.4608, 0.4616, 0.4625, 0.4633,
+  // z = 1.8x
+  0.4641, 0.4649, 0.4656, 0.4664, 0.4671, 0.4678, 0.4686, 0.4693, 0.4699, 0.4706,
+  // z = 1.9x
+  0.4713, 0.4719, 0.4726, 0.4732, 0.4738, 0.4744, 0.4750, 0.4756, 0.4761, 0.4767,
+  // z = 2.0x
+  0.4772, 0.4778, 0.4783, 0.4788, 0.4793, 0.4798, 0.4803, 0.4808, 0.4812, 0.4817,
+  // z = 2.1x
+  0.4821, 0.4826, 0.4830, 0.4834, 0.4838, 0.4842, 0.4846, 0.4850, 0.4854, 0.4857,
+  // z = 2.2x
+  0.4861, 0.4864, 0.4868, 0.4871, 0.4875, 0.4878, 0.4881, 0.4884, 0.4887, 0.4890,
+  // z = 2.3x
+  0.4893, 0.4896, 0.4898, 0.4901, 0.4904, 0.4906, 0.4909, 0.4911, 0.4913, 0.4916,
+  // z = 2.4x
+  0.4918, 0.4920, 0.4922, 0.4925, 0.4927, 0.4929, 0.4931, 0.4932, 0.4934, 0.4936,
+  // z = 2.5x
+  0.4938, 0.4940, 0.4941, 0.4943, 0.4945, 0.4946, 0.4948, 0.4949, 0.4951, 0.4952,
+  // z = 2.6x
+  0.4953, 0.4955, 0.4956, 0.4957, 0.4959, 0.4960, 0.4961, 0.4962, 0.4963, 0.4964,
+  // z = 2.7x
+  0.4965, 0.4966, 0.4967, 0.4968, 0.4969, 0.4970, 0.4971, 0.4972, 0.4973, 0.4974,
+  // z = 2.8x
+  0.4974, 0.4975, 0.4976, 0.4977, 0.4977, 0.4978, 0.4979, 0.4979, 0.4980, 0.4981,
+  // z = 2.9x
+  0.4981, 0.4982, 0.4982, 0.4983, 0.4984, 0.4984, 0.4985, 0.4985, 0.4986, 0.4986,
+  // z = 3.0x
+  0.4987, 0.4987, 0.4987, 0.4988, 0.4988, 0.4989, 0.4989, 0.4989, 0.4990, 0.4990,
+]
+
+/** Returns P(0 ≤ Z ≤ |z|) from the fixed reference z-table (rounded to 2 decimals) */
+export function zTableArea(z: number): number {
+  const idx = Math.min(Math.round(Math.abs(z) * 100), Z_TABLE_DATA.length - 1)
+  return Z_TABLE_DATA[idx]
+}
+
+/** CDF using fixed z-table: P(X ≤ x) for N(μ, σ) */
+export function gaussCDFTable(x: number, mu: number, sigma: number): number {
+  const z = (x - mu) / sigma
+  const area = zTableArea(z)
+  return z >= 0 ? 0.5 + area : 0.5 - area
+}
+
+export function gaussBase(mu: number, sigma: number): ContinuousResult {
+  const pdf = (x: number) => normalPDF(x, mu, sigma)
+  const cdf = (x: number) => gaussCDFTable(x, mu, sigma)
+
+  const lo = mu - 3.5 * sigma
+  const hi = mu + 3.5 * sigma
+  const steps = 100
+  const dx = (hi - lo) / steps
+  const table: TableRow[] = []
+  for (let i = 0; i <= steps; i++) {
+    const x = Math.round((lo + i * dx) * 100) / 100
+    table.push({ x, px: pdf(x), cumulative: cdf(x) })
+  }
+
+  return {
+    mean: mu,
+    variance: sigma * sigma,
+    stdDev: sigma,
+    table,
+    isContinuous: true,
+    pdf,
+    cdf,
+    meanFormula: `μ = ${mu}`,
+    varianceFormula: `σ² = ${sigma}² = ${(sigma * sigma).toFixed(4)}`,
+    stdDevFormula: `σ = ${sigma}`,
+  }
+}
+
+export function evaluateIncisoGauss(
+  mu: number, sigma: number, op: Operator, value: number
+): IncisoResult {
+  const opLabel: Record<Operator, string> = {
+    '=': '=', '>': '>', '<': '<', '>=': '≥', '<=': '≤', '!=': '≠',
+  }
+
+  const cdf = (x: number) => gaussCDFTable(x, mu, sigma)
+  const z = (value - mu) / sigma
+  const zr = Math.round(z * 100) / 100
+  const area = zTableArea(zr)
+  const cdfVal = cdf(value)
+
+  let probability: number
+  switch (op) {
+    case '=':  probability = 0; break
+    case '!=': probability = 1; break
+    case '<': case '<=': probability = cdfVal; break
+    case '>': case '>=': probability = 1 - cdfVal; break
+    default:   probability = 0
+  }
+
+  const steps: Step[] = [
+    {
+      label: 'Z-score',
+      expression: `z = (${value} − ${mu}) / ${sigma} = ${zr.toFixed(2)}`,
+      value: '',
+    },
+    {
+      label: 'Tabla Z',
+      expression: `P(0 ≤ Z ≤ ${Math.abs(zr).toFixed(2)})`,
+      value: area.toFixed(4),
+    },
+  ]
+
+  if (op === '=' || op === '!=') {
+    steps.push({
+      label: 'Nota',
+      expression: op === '='
+        ? 'En distribuciones continuas P(X = x) = 0'
+        : 'En distribuciones continuas P(X ≠ x) = 1',
+      value: probability.toFixed(4),
+    })
+  } else if (op === '<' || op === '<=') {
+    steps.push({
+      label: 'Cálculo',
+      expression: z >= 0
+        ? `0.5 + ${area.toFixed(4)}`
+        : `0.5 − ${area.toFixed(4)}`,
+      value: probability.toFixed(4),
+    })
+  } else {
+    steps.push({
+      label: 'Cálculo',
+      expression: z >= 0
+        ? `0.5 − ${area.toFixed(4)}`
+        : `0.5 + ${area.toFixed(4)}`,
+      value: probability.toFixed(4),
+    })
+  }
+
+  steps.push({
+    label: 'Resultado',
+    expression: `P(X ${opLabel[op]} ${value})`,
+    value: probability.toFixed(4),
+  })
+
+  return {
+    probability,
+    matchingRows: [],
+    steps,
+    interpretation: `P(X ${opLabel[op]} ${value}) = ${probability.toFixed(4)} (${(probability * 100).toFixed(2)}%)`,
+  }
+}
+
+export function evaluateIncisoGaussRange(
+  mu: number, sigma: number,
+  low: number, opLow: RangeOp, opHigh: RangeOp, high: number
+): IncisoResult {
+  const opLowLabel = opLow === '<' ? '<' : '≤'
+  const opHighLabel = opHigh === '<' ? '<' : '≤'
+  const condExpr = `P(${low} ${opLowLabel} X ${opHighLabel} ${high})`
+
+  const cdf = (x: number) => gaussCDFTable(x, mu, sigma)
+  const probability = cdf(high) - cdf(low)
+
+  const z1 = (low - mu) / sigma
+  const z2 = (high - mu) / sigma
+  const z1r = Math.round(z1 * 100) / 100
+  const z2r = Math.round(z2 * 100) / 100
+  const a1 = zTableArea(z1r)
+  const a2 = zTableArea(z2r)
+
+  const steps: Step[] = [
+    { label: 'Z₁', expression: `z₁ = (${low} − ${mu}) / ${sigma} = ${z1r.toFixed(2)}`, value: '' },
+    { label: 'Z₂', expression: `z₂ = (${high} − ${mu}) / ${sigma} = ${z2r.toFixed(2)}`, value: '' },
+    { label: 'A₁', expression: `P(0 ≤ Z ≤ ${Math.abs(z1r).toFixed(2)})`, value: a1.toFixed(4) },
+    { label: 'A₂', expression: `P(0 ≤ Z ≤ ${Math.abs(z2r).toFixed(2)})`, value: a2.toFixed(4) },
+    {
+      label: 'CDF',
+      expression: `F(${high}) − F(${low}) = ${cdf(high).toFixed(4)} − ${cdf(low).toFixed(4)}`,
+      value: probability.toFixed(4),
+    },
+    { label: 'Resultado', expression: condExpr, value: probability.toFixed(4) },
+  ]
+
+  return {
+    probability,
+    matchingRows: [],
+    steps,
+    interpretation: `${condExpr} = ${probability.toFixed(4)} (${(probability * 100).toFixed(2)}%)`,
+  }
+}
+
 // ─── Continuous inciso evaluators ──────────────────────────────────────
 
 export function evaluateIncisoContinuous(

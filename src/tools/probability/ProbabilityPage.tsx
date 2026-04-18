@@ -10,10 +10,13 @@ import {
   tStudentBase,
   chiSquareBase,
   fisherBase,
+  gaussBase,
   evaluateInciso,
   evaluateIncisoRange,
   evaluateIncisoContinuous,
   evaluateIncisoContinuousRange,
+  evaluateIncisoGauss,
+  evaluateIncisoGaussRange,
   type DistBaseResult,
   type ContinuousResult,
   type HyperDualResult,
@@ -23,7 +26,7 @@ import {
   type IncisoResult,
 } from './distributions'
 
-type DistType = 'binomial' | 'poisson' | 'hypergeometric' | 'normal' | 'tstudent' | 'chi-square' | 'fisher'
+type DistType = 'binomial' | 'poisson' | 'hypergeometric' | 'normal' | 'tstudent' | 'chi-square' | 'fisher' | 'gauss'
 
 interface Inciso {
   mode: 'single' | 'range'
@@ -45,6 +48,7 @@ const DIST_DESCRIPTIONS: Record<DistType, string> = {
   tstudent: 'Distribución para muestras pequeñas con varianza desconocida',
   'chi-square': 'Distribución para pruebas de bondad de ajuste e independencia',
   fisher: 'Distribución para comparar varianzas de dos poblaciones',
+  gauss: 'Campana de Gauss con tabla Z de referencia fija — ingresa μ y σ para calcular probabilidades',
 }
 
 const OPERATORS: { value: Operator; label: string }[] = [
@@ -67,12 +71,13 @@ const DIST_TITLES: Record<DistType, string> = {
   tstudent: 'Distribución T-Student',
   'chi-square': 'Distribución Chi-Cuadrada (χ²)',
   fisher: 'Distribución F de Fisher',
+  gauss: 'Campana de Gauss (Tabla Z)',
 }
 
 export function ProbabilityPage() {
   const { distType: urlDistType } = useParams<{ distType: string }>()
   const distType = (
-    ['binomial', 'poisson', 'hypergeometric', 'normal', 'tstudent', 'chi-square', 'fisher'].includes(urlDistType ?? '')
+    ['binomial', 'poisson', 'hypergeometric', 'normal', 'tstudent', 'chi-square', 'fisher', 'gauss'].includes(urlDistType ?? '')
       ? urlDistType
       : 'binomial'
   ) as DistType
@@ -106,6 +111,10 @@ export function ProbabilityPage() {
   const [normMu, setNormMu] = useState('0')
   const [normSigma, setNormSigma] = useState('1')
 
+  // Gauss params (tabla Z)
+  const [gaussMu, setGaussMu] = useState('0')
+  const [gaussSigma, setGaussSigma] = useState('1')
+
   // T-Student params
   const [tDf, setTDf] = useState('10')
 
@@ -132,7 +141,7 @@ export function ProbabilityPage() {
     setTableOpenFail(true)
   }, [distType])
 
-  const isContinuous = ['normal', 'tstudent', 'chi-square', 'fisher'].includes(distType)
+  const isContinuous = ['normal', 'gauss', 'tstudent', 'chi-square', 'fisher'].includes(distType)
 
   const calculate = useCallback(() => {
     if (distType === 'hypergeometric') {
@@ -147,6 +156,9 @@ export function ProbabilityPage() {
       switch (distType) {
         case 'normal':
           r = normalBase(+normMu, +normSigma)
+          break
+        case 'gauss':
+          r = gaussBase(+gaussMu, +gaussSigma)
           break
         case 'tstudent':
           r = tStudentBase(+tDf)
@@ -184,7 +196,7 @@ export function ProbabilityPage() {
     setTableOpen(true)
     setTableOpenSuc(true)
     setTableOpenFail(true)
-  }, [distType, binN, binP, poisLambda, hypN, hypK, hypn, normMu, normSigma, tDf, chiK, fishD1, fishD2, isContinuous])
+  }, [distType, binN, binP, poisLambda, hypN, hypK, hypn, normMu, normSigma, gaussMu, gaussSigma, tDf, chiK, fishD1, fishD2, isContinuous])
 
   // ─── Inciso management (generic) ──────────────────────────────────────
 
@@ -234,6 +246,49 @@ export function ProbabilityPage() {
       setList(next)
     },
   })
+
+  // Gauss-specific inciso handlers (show z-score steps)
+  const makeGaussIncisoHandlers = (
+    list: Inciso[],
+    setList: React.Dispatch<React.SetStateAction<Inciso[]>>,
+    mu: number,
+    sigma: number,
+  ) => {
+    const autoCalcG = (inc: Inciso): IncisoResult => {
+      if (inc.mode === 'range') {
+        return evaluateIncisoGaussRange(mu, sigma, +inc.lowValue, inc.opLow, inc.opHigh, +inc.highValue)
+      }
+      return evaluateIncisoGauss(mu, sigma, inc.operator, +inc.value)
+    }
+    return {
+      add: () => {
+        const newInc: Inciso = {
+          mode: 'single', operator: '<=' as Operator,
+          value: String(mu + sigma),
+          lowValue: String(mu - sigma), opLow: '<', opHigh: '<', highValue: String(mu + sigma),
+          result: null,
+        }
+        newInc.result = autoCalcG(newInc)
+        setList([...list, newInc])
+      },
+      remove: (idx: number) => setList(list.filter((_, i) => i !== idx)),
+      update: (idx: number, field: string, val: string) => {
+        const next = [...list]
+        const updated = { ...next[idx], [field]: val }
+        updated.result = autoCalcG(updated)
+        next[idx] = updated
+        setList(next)
+      },
+      toggleMode: (idx: number) => {
+        const next = [...list]
+        const inc = { ...next[idx] }
+        inc.mode = inc.mode === 'single' ? 'range' : 'single'
+        inc.result = autoCalcG(inc)
+        next[idx] = inc
+        setList(next)
+      },
+    }
+  }
 
   // Highlighted x values from incisos
   const getHighlightXs = (incList: Inciso[]) => {
@@ -313,6 +368,18 @@ export function ProbabilityPage() {
           </div>
         )}
 
+        {distType === 'gauss' && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-4">
+              <InputField label={<>μ <M>(media)</M></>} value={gaussMu} onChange={setGaussMu} step={0.1} />
+              <InputField label={<>σ <M>(desviación estándar)</M></>} value={gaussSigma} onChange={setGaussSigma} min={0.01} step={0.1} />
+            </div>
+            <p className="text-[11px] text-zinc-400 font-mono">
+              Usa la tabla Z de referencia fija · P(0 ≤ Z ≤ z) · z = (x − μ) / σ
+            </p>
+          </div>
+        )}
+
         {distType === 'tstudent' && (
           <div className="grid grid-cols-1 gap-4 max-w-xs">
             <InputField label={<>ν <M>(grados de libertad)</M></>} value={tDf} onChange={setTDf} min={1} step={1} />
@@ -361,13 +428,19 @@ export function ProbabilityPage() {
         <DistPanel
           base={contResult}
           incisos={incisos}
-          handlers={makeIncisoHandlers(incisos, setIncisos, contResult.table, contResult.cdf)}
+          handlers={
+            distType === 'gauss'
+              ? makeGaussIncisoHandlers(incisos, setIncisos, +gaussMu, +gaussSigma)
+              : makeIncisoHandlers(incisos, setIncisos, contResult.table, contResult.cdf)
+          }
           highlightXs={highlightXs}
           tableOpen={tableOpen}
           setTableOpen={setTableOpen}
           isContinuous
+          incisoStep={distType === 'gauss' ? 0.01 : 1}
           pdfLabel={
             distType === 'normal' ? 'f(x)' :
+            distType === 'gauss' ? 'f(x)' :
             distType === 'tstudent' ? 'f(t)' :
             distType === 'chi-square' ? 'f(χ²)' :
             'f(x)'
@@ -434,7 +507,7 @@ interface IncisoHandlers {
 type ChartColor = 'blue' | 'amber'
 
 function DistPanel({
-  base, incisos, handlers, highlightXs, tableOpen, setTableOpen, color = 'blue', formulaFn, isContinuous: continuous, pdfLabel,
+  base, incisos, handlers, highlightXs, tableOpen, setTableOpen, color = 'blue', formulaFn, isContinuous: continuous, pdfLabel, incisoStep,
 }: {
   base: DistBaseResult | ContinuousResult
   incisos: Inciso[]
@@ -446,6 +519,7 @@ function DistPanel({
   formulaFn?: (x: number) => string
   isContinuous?: boolean
   pdfLabel?: string
+  incisoStep?: number
 }) {
   return (
     <div className="space-y-4">
@@ -463,7 +537,23 @@ function DistPanel({
       <div className="bg-white border border-zinc-200 rounded-lg p-4">
         <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide mb-3">Gráfico de distribución</p>
         {continuous ? (
-          <ContinuousChart table={base.table} color={color} yLabel={pdfLabel || 'f(x)'} />
+          <ContinuousChart
+            table={base.table}
+            color={color}
+            yLabel={pdfLabel || 'f(x)'}
+            shadeRegions={incisos.flatMap((inc) => {
+              if (!inc.result || inc.result.probability <= 0 || inc.result.probability >= 1) return []
+              if (inc.mode === 'range') {
+                const lo = +inc.lowValue, hi = +inc.highValue
+                return lo < hi ? [{ lo, hi }] : []
+              }
+              switch (inc.operator) {
+                case '<': case '<=': return [{ lo: -Infinity, hi: +inc.value }]
+                case '>': case '>=': return [{ lo: +inc.value, hi: +Infinity }]
+                default: return []
+              }
+            })}
+          />
         ) : (
           <DistChart table={base.table} highlightXs={highlightXs} color={color} />
         )}
@@ -498,7 +588,7 @@ function DistPanel({
         )}
 
         {incisos.map((inc, idx) => (
-          <IncisoRow key={idx} inc={inc} idx={idx} handlers={handlers} />
+          <IncisoRow key={idx} inc={inc} idx={idx} handlers={handlers} step={incisoStep ?? 1} />
         ))}
       </div>
     </div>
@@ -512,7 +602,7 @@ const RANGE_OPS: { value: RangeOp; label: string }[] = [
   { value: '<=', label: '≤' },
 ]
 
-function IncisoRow({ inc, idx, handlers }: { inc: Inciso; idx: number; handlers: IncisoHandlers }) {
+function IncisoRow({ inc, idx, handlers, step = 1 }: { inc: Inciso; idx: number; handlers: IncisoHandlers; step?: number }) {
   const [showSteps, setShowSteps] = useState(false)
 
   return (
@@ -550,8 +640,7 @@ function IncisoRow({ inc, idx, handlers }: { inc: Inciso; idx: number; handlers:
               value={inc.value}
               onChange={(e) => handlers.update(idx, 'value', e.target.value)}
               className="w-20 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-              min={0}
-              step={1}
+              step={step}
             />
           </>
         ) : (
@@ -562,7 +651,7 @@ function IncisoRow({ inc, idx, handlers }: { inc: Inciso; idx: number; handlers:
               value={inc.lowValue}
               onChange={(e) => handlers.update(idx, 'lowValue', e.target.value)}
               className="w-16 rounded-lg border border-zinc-200 px-2 py-1.5 text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-              step={1}
+              step={step}
             />
             <select
               value={inc.opLow}
@@ -588,7 +677,7 @@ function IncisoRow({ inc, idx, handlers }: { inc: Inciso; idx: number; handlers:
               value={inc.highValue}
               onChange={(e) => handlers.update(idx, 'highValue', e.target.value)}
               className="w-16 rounded-lg border border-zinc-200 px-2 py-1.5 text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
-              step={1}
+              step={step}
             />
           </>
         )}
@@ -810,8 +899,16 @@ function DistChart({ table, highlightXs, color = 'blue' }: { table: TableRow[]; 
 
 // ─── Continuous curve chart ──────────────────────────────────────────────
 
-function ContinuousChart({ table, color = 'blue', yLabel }: { table: TableRow[]; color?: ChartColor; yLabel: string }) {
+function ContinuousChart({
+  table, color = 'blue', yLabel, shadeRegions = [],
+}: {
+  table: TableRow[]
+  color?: ChartColor
+  yLabel: string
+  shadeRegions?: Array<{ lo: number; hi: number }>
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const shadeKey = shadeRegions.map((r) => `${r.lo}:${r.hi}`).join(',')
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -837,6 +934,18 @@ function ContinuousChart({ table, color = 'blue', yLabel }: { table: TableRow[];
 
     const toCanvasX = (x: number) => pad.left + ((x - minX) / (maxX - minX)) * chartW
     const toCanvasY = (y: number) => pad.top + chartH - (y / maxP) * chartH
+
+    // Linear-interpolate PDF at arbitrary x
+    const pdfAt = (x: number): number => {
+      if (x <= minX) return table[0].px
+      if (x >= maxX) return table[table.length - 1].px
+      const i = table.findIndex((r) => r.x >= x)
+      if (i <= 0) return table[0].px
+      const r0 = table[i - 1], r1 = table[i]
+      const span = r1.x - r0.x
+      if (span === 0) return r0.px
+      return r0.px + ((x - r0.x) / span) * (r1.px - r0.px)
+    }
 
     // Y-axis gridlines
     ctx.strokeStyle = '#e4e4e7'
@@ -864,8 +973,9 @@ function ContinuousChart({ table, color = 'blue', yLabel }: { table: TableRow[];
       ctx.fillText(xVal.toFixed(1), x, h - pad.bottom + 14)
     }
 
-    // Fill area under curve
     const cc = CHART_COLORS[color]
+
+    // Base fill under full curve (light)
     ctx.beginPath()
     ctx.moveTo(toCanvasX(table[0].x), toCanvasY(0))
     for (const row of table) {
@@ -873,10 +983,49 @@ function ContinuousChart({ table, color = 'blue', yLabel }: { table: TableRow[];
     }
     ctx.lineTo(toCanvasX(table[table.length - 1].x), toCanvasY(0))
     ctx.closePath()
-    ctx.fillStyle = cc.bar + '80' // semi-transparent
+    ctx.fillStyle = cc.bar + (shadeRegions.length > 0 ? '55' : '80')
     ctx.fill()
 
-    // Draw curve line
+    // Shaded probability regions
+    for (const { lo, hi } of shadeRegions) {
+      const shadeLo = Math.max(lo, minX)
+      const shadeHi = Math.min(hi, maxX)
+      if (shadeLo >= shadeHi) continue
+
+      const inner = table.filter((r) => r.x > shadeLo && r.x < shadeHi)
+
+      ctx.beginPath()
+      ctx.moveTo(toCanvasX(shadeLo), toCanvasY(0))
+      ctx.lineTo(toCanvasX(shadeLo), toCanvasY(pdfAt(shadeLo)))
+      for (const row of inner) {
+        ctx.lineTo(toCanvasX(row.x), toCanvasY(row.px))
+      }
+      ctx.lineTo(toCanvasX(shadeHi), toCanvasY(pdfAt(shadeHi)))
+      ctx.lineTo(toCanvasX(shadeHi), toCanvasY(0))
+      ctx.closePath()
+      ctx.fillStyle = cc.highlight + '55'
+      ctx.fill()
+
+      // Vertical boundary lines
+      ctx.strokeStyle = cc.highlight + 'cc'
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([4, 3])
+      if (lo > minX) {
+        ctx.beginPath()
+        ctx.moveTo(toCanvasX(shadeLo), toCanvasY(0))
+        ctx.lineTo(toCanvasX(shadeLo), toCanvasY(pdfAt(shadeLo)))
+        ctx.stroke()
+      }
+      if (hi < maxX) {
+        ctx.beginPath()
+        ctx.moveTo(toCanvasX(shadeHi), toCanvasY(0))
+        ctx.lineTo(toCanvasX(shadeHi), toCanvasY(pdfAt(shadeHi)))
+        ctx.stroke()
+      }
+      ctx.setLineDash([])
+    }
+
+    // Draw curve line (on top)
     ctx.beginPath()
     ctx.moveTo(toCanvasX(table[0].x), toCanvasY(table[0].px))
     for (const row of table) {
@@ -896,7 +1045,8 @@ function ContinuousChart({ table, color = 'blue', yLabel }: { table: TableRow[];
     ctx.rotate(-Math.PI / 2)
     ctx.fillText(yLabel, 0, 0)
     ctx.restore()
-  }, [table, color, yLabel])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [table, color, yLabel, shadeKey])
 
   return <canvas ref={canvasRef} className="w-full" style={{ height: 220 }} />
 }
