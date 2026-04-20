@@ -17,9 +17,11 @@ import {
   evaluateIncisoContinuousRange,
   evaluateIncisoGauss,
   evaluateIncisoGaussRange,
+  solveGaussX,
   type DistBaseResult,
   type ContinuousResult,
   type HyperDualResult,
+  type GaussSolveResult,
   type TableRow,
   type Operator,
   type RangeOp,
@@ -114,6 +116,11 @@ export function ProbabilityPage() {
   // Gauss params (tabla Z)
   const [gaussMu, setGaussMu] = useState('0')
   const [gaussSigma, setGaussSigma] = useState('1')
+
+  // Gauss despeje de x
+  const [solveOp, setSolveOp] = useState<Operator>('<=')
+  const [solveProb, setSolveProb] = useState('0.9772')
+  const [solveResult, setSolveResult] = useState<GaussSolveResult | null>(null)
 
   // T-Student params
   const [tDf, setTDf] = useState('10')
@@ -425,27 +432,41 @@ export function ProbabilityPage() {
 
       {/* ═══════════ RESULTS — continuous ═══════════ */}
       {contResult && isContinuous && (
-        <DistPanel
-          base={contResult}
-          incisos={incisos}
-          handlers={
-            distType === 'gauss'
-              ? makeGaussIncisoHandlers(incisos, setIncisos, +gaussMu, +gaussSigma)
-              : makeIncisoHandlers(incisos, setIncisos, contResult.table, contResult.cdf)
-          }
-          highlightXs={highlightXs}
-          tableOpen={tableOpen}
-          setTableOpen={setTableOpen}
-          isContinuous
-          incisoStep={distType === 'gauss' ? 0.01 : 1}
-          pdfLabel={
-            distType === 'normal' ? 'f(x)' :
-            distType === 'gauss' ? 'f(x)' :
-            distType === 'tstudent' ? 'f(t)' :
-            distType === 'chi-square' ? 'f(χ²)' :
-            'f(x)'
-          }
-        />
+        <>
+          <DistPanel
+            base={contResult}
+            incisos={incisos}
+            handlers={
+              distType === 'gauss'
+                ? makeGaussIncisoHandlers(incisos, setIncisos, +gaussMu, +gaussSigma)
+                : makeIncisoHandlers(incisos, setIncisos, contResult.table, contResult.cdf)
+            }
+            highlightXs={highlightXs}
+            tableOpen={tableOpen}
+            setTableOpen={setTableOpen}
+            isContinuous
+            incisoStep={distType === 'gauss' ? 0.01 : 1}
+            pdfLabel={
+              distType === 'normal' ? 'f(x)' :
+              distType === 'gauss' ? 'f(x)' :
+              distType === 'tstudent' ? 'f(t)' :
+              distType === 'chi-square' ? 'f(χ²)' :
+              'f(x)'
+            }
+          />
+          {distType === 'gauss' && (
+            <GaussSolvePanel
+              mu={+gaussMu}
+              sigma={+gaussSigma}
+              op={solveOp}
+              setOp={setSolveOp}
+              prob={solveProb}
+              setProb={setSolveProb}
+              result={solveResult}
+              onSolve={() => setSolveResult(solveGaussX(+gaussMu, +gaussSigma, solveOp, +solveProb))}
+            />
+          )}
+        </>
       )}
 
       {/* ═══════════ RESULTS — hypergeometric dual ═══════════ */}
@@ -895,6 +916,82 @@ function DistChart({ table, highlightXs, color = 'blue' }: { table: TableRow[]; 
   }, [table, highlightXs])
 
   return <canvas ref={canvasRef} className="w-full" style={{ height: 220 }} />
+}
+
+// ─── Gauss solve-for-x panel ────────────────────────────────────────────
+
+const SOLVE_OPERATORS: { value: Operator; label: string }[] = [
+  { value: '<=', label: 'P(X ≤ x) =' },
+  { value: '<',  label: 'P(X < x) =' },
+  { value: '>=', label: 'P(X ≥ x) =' },
+  { value: '>',  label: 'P(X > x) =' },
+]
+
+function GaussSolvePanel({
+  mu, sigma, op, setOp, prob, setProb, result, onSolve,
+}: {
+  mu: number; sigma: number
+  op: Operator; setOp: (v: Operator) => void
+  prob: string; setProb: (v: string) => void
+  result: GaussSolveResult | null
+  onSolve: () => void
+}) {
+  return (
+    <div className="bg-white border border-zinc-200 rounded-lg p-5 space-y-4">
+      <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Despeje de X</p>
+      <p className="text-xs text-zinc-400">
+        Dado una probabilidad, encuentra el valor de <M>x</M> usando la tabla Z.
+        <span className="font-mono ml-1">μ={mu}, σ={sigma}</span>
+      </p>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <select
+          value={op}
+          onChange={(e) => setOp(e.target.value as Operator)}
+          className="rounded-lg border border-zinc-200 px-2 py-1.5 text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+        >
+          {SOLVE_OPERATORS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <input
+          type="number"
+          value={prob}
+          onChange={(e) => setProb(e.target.value)}
+          min={0} max={1} step={0.0001}
+          className="w-28 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+        />
+        <Button onClick={onSolve} variant="primary" size="sm">
+          <Calculator size={13} /> Despejar x
+        </Button>
+      </div>
+
+      {result && (
+        <div className="space-y-2">
+          {!isNaN(result.x) && (
+            <div className="flex items-center gap-3 bg-blue-50 rounded-lg px-4 py-2">
+              <span className="text-sm text-zinc-500 font-serif italic">x =</span>
+              <span className="text-lg font-bold font-mono text-zinc-900">{result.x.toFixed(4)}</span>
+              <span className="text-xs text-zinc-400 font-mono">z = {result.z.toFixed(2)}</span>
+            </div>
+          )}
+          <div className="space-y-1 ml-1">
+            {result.steps.map((step, i) => (
+              <div key={i} className="flex items-start gap-3 py-0.5 text-xs">
+                <span className="font-bold text-zinc-400 uppercase w-24 shrink-0 pt-0.5 text-[10px]">
+                  {step.label}
+                </span>
+                <span className="font-mono text-zinc-600 flex-1"><M>{step.expression}</M></span>
+                {step.value && (
+                  <span className="font-mono font-medium text-zinc-900">= {step.value}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Continuous curve chart ──────────────────────────────────────────────

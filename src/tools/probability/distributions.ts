@@ -676,23 +676,22 @@ export function evaluateIncisoGauss(
   const cdf = (x: number) => gaussCDFTable(x, mu, sigma)
   const z = (value - mu) / sigma
   const zr = Math.round(z * 100) / 100
-  const area = zTableArea(zr)
-  const cdfVal = cdf(value)
+  const area = zTableArea(Math.abs(zr))
 
   let probability: number
   switch (op) {
     case '=':  probability = 0; break
     case '!=': probability = 1; break
-    case '<': case '<=': probability = cdfVal; break
-    case '>': case '>=': probability = 1 - cdfVal; break
+    case '<': case '<=': probability = cdf(value); break
+    case '>': case '>=': probability = 1 - cdf(value); break
     default:   probability = 0
   }
 
   const steps: Step[] = [
     {
       label: 'Z-score',
-      expression: `z = (${value} − ${mu}) / ${sigma} = ${zr.toFixed(2)}`,
-      value: '',
+      expression: `z = (x − μ) / σ = (${value} − ${mu}) / ${sigma}`,
+      value: zr.toFixed(2),
     },
     {
       label: 'Tabla Z',
@@ -710,21 +709,58 @@ export function evaluateIncisoGauss(
       value: probability.toFixed(4),
     })
   } else if (op === '<' || op === '<=') {
-    steps.push({
-      label: 'Cálculo',
-      expression: z >= 0
-        ? `0.5 + ${area.toFixed(4)}`
-        : `0.5 − ${area.toFixed(4)}`,
-      value: probability.toFixed(4),
-    })
+    if (zr === 0) {
+      steps.push({ label: 'Cálculo', expression: 'z = 0 → P = 0.5', value: '0.5000' })
+    } else if (zr > 0) {
+      steps.push({
+        label: 'Regla',
+        expression: 'z > 0 → mitad izquierda + área(0 a z)',
+        value: '',
+      })
+      steps.push({
+        label: 'Cálculo',
+        expression: `0.5 + ${area.toFixed(4)}`,
+        value: probability.toFixed(4),
+      })
+    } else {
+      steps.push({
+        label: 'Regla 2',
+        expression: 'z < 0 → cola izquierda = 0.5 − área(0 a |z|)',
+        value: '',
+      })
+      steps.push({
+        label: 'Cálculo',
+        expression: `0.5 − ${area.toFixed(4)}`,
+        value: probability.toFixed(4),
+      })
+    }
   } else {
-    steps.push({
-      label: 'Cálculo',
-      expression: z >= 0
-        ? `0.5 − ${area.toFixed(4)}`
-        : `0.5 + ${area.toFixed(4)}`,
-      value: probability.toFixed(4),
-    })
+    // > or >=
+    if (zr === 0) {
+      steps.push({ label: 'Cálculo', expression: 'z = 0 → P = 0.5', value: '0.5000' })
+    } else if (zr > 0) {
+      steps.push({
+        label: 'Regla 2',
+        expression: 'z > 0 → área superior = 0.5 − área(0 a z)',
+        value: '',
+      })
+      steps.push({
+        label: 'Cálculo',
+        expression: `0.5 − ${area.toFixed(4)}`,
+        value: probability.toFixed(4),
+      })
+    } else {
+      steps.push({
+        label: 'Regla',
+        expression: 'z < 0 → área superior = 0.5 + área(0 a |z|)',
+        value: '',
+      })
+      steps.push({
+        label: 'Cálculo',
+        expression: `0.5 + ${area.toFixed(4)}`,
+        value: probability.toFixed(4),
+      })
+    }
   }
 
   steps.push({
@@ -756,21 +792,37 @@ export function evaluateIncisoGaussRange(
   const z2 = (high - mu) / sigma
   const z1r = Math.round(z1 * 100) / 100
   const z2r = Math.round(z2 * 100) / 100
-  const a1 = zTableArea(z1r)
-  const a2 = zTableArea(z2r)
+  const a1 = zTableArea(Math.abs(z1r))
+  const a2 = zTableArea(Math.abs(z2r))
 
   const steps: Step[] = [
-    { label: 'Z₁', expression: `z₁ = (${low} − ${mu}) / ${sigma} = ${z1r.toFixed(2)}`, value: '' },
-    { label: 'Z₂', expression: `z₂ = (${high} − ${mu}) / ${sigma} = ${z2r.toFixed(2)}`, value: '' },
-    { label: 'A₁', expression: `P(0 ≤ Z ≤ ${Math.abs(z1r).toFixed(2)})`, value: a1.toFixed(4) },
-    { label: 'A₂', expression: `P(0 ≤ Z ≤ ${Math.abs(z2r).toFixed(2)})`, value: a2.toFixed(4) },
-    {
-      label: 'CDF',
-      expression: `F(${high}) − F(${low}) = ${cdf(high).toFixed(4)} − ${cdf(low).toFixed(4)}`,
-      value: probability.toFixed(4),
-    },
-    { label: 'Resultado', expression: condExpr, value: probability.toFixed(4) },
+    { label: 'Z₁', expression: `z₁ = (${low} − ${mu}) / ${sigma}`, value: z1r.toFixed(2) },
+    { label: 'Z₂', expression: `z₂ = (${high} − ${mu}) / ${sigma}`, value: z2r.toFixed(2) },
+    { label: 'A₁ (tabla)', expression: `P(0 ≤ Z ≤ ${Math.abs(z1r).toFixed(2)})`, value: a1.toFixed(4) },
+    { label: 'A₂ (tabla)', expression: `P(0 ≤ Z ≤ ${Math.abs(z2r).toFixed(2)})`, value: a2.toFixed(4) },
   ]
+
+  if (z1r === 0) {
+    // Rule 1: area from mean to z2, direct lookup
+    steps.push({ label: 'Regla 1', expression: 'Límite inferior = μ → búsqueda directa en tabla', value: '' })
+    steps.push({ label: 'Cálculo', expression: `A₂ = ${a2.toFixed(4)}`, value: probability.toFixed(4) })
+  } else if (z2r === 0) {
+    // Rule 1: area from z1 to mean, direct lookup
+    steps.push({ label: 'Regla 1', expression: 'Límite superior = μ → búsqueda directa en tabla', value: '' })
+    steps.push({ label: 'Cálculo', expression: `A₁ = ${a1.toFixed(4)}`, value: probability.toFixed(4) })
+  } else if (z1r < 0 && z2r > 0) {
+    // Rule 3: different sides of the mean — add areas
+    steps.push({ label: 'Regla 3', expression: 'Puntos en lados distintos de la media → se suman las áreas', value: '' })
+    steps.push({ label: 'Cálculo', expression: `A₁ + A₂ = ${a1.toFixed(4)} + ${a2.toFixed(4)}`, value: probability.toFixed(4) })
+  } else {
+    // Rule 4: same side — subtract smaller from larger
+    const aLarge = Math.max(a1, a2)
+    const aSmall = Math.min(a1, a2)
+    steps.push({ label: 'Regla 4', expression: 'Mismo lado de la media → área mayor − área menor', value: '' })
+    steps.push({ label: 'Cálculo', expression: `${aLarge.toFixed(4)} − ${aSmall.toFixed(4)}`, value: probability.toFixed(4) })
+  }
+
+  steps.push({ label: 'Resultado', expression: condExpr, value: probability.toFixed(4) })
 
   return {
     probability,
@@ -778,6 +830,72 @@ export function evaluateIncisoGaussRange(
     steps,
     interpretation: `${condExpr} = ${probability.toFixed(4)} (${(probability * 100).toFixed(2)}%)`,
   }
+}
+
+// ─── Inverse Z-table lookup ────────────────────────────────────────────
+
+/** Find z (to 2 decimal places) such that P(0 ≤ Z ≤ z) ≈ area */
+export function inverseZTable(area: number): number {
+  if (area <= 0) return 0
+  if (area >= Z_TABLE_DATA[Z_TABLE_DATA.length - 1]) return (Z_TABLE_DATA.length - 1) / 100
+  let bestIdx = 0
+  let bestDiff = Math.abs(Z_TABLE_DATA[0] - area)
+  for (let i = 1; i < Z_TABLE_DATA.length; i++) {
+    const diff = Math.abs(Z_TABLE_DATA[i] - area)
+    if (diff < bestDiff) { bestDiff = diff; bestIdx = i }
+  }
+  return bestIdx / 100
+}
+
+export interface GaussSolveResult {
+  x: number
+  z: number
+  steps: Step[]
+}
+
+/** Despeje de x: dado P(X op x) = probability, encuentra x usando la tabla Z */
+export function solveGaussX(mu: number, sigma: number, op: Operator, probability: number): GaussSolveResult {
+  const steps: Step[] = []
+
+  if (op === '=' || op === '!=') {
+    return { x: NaN, z: NaN, steps: [{ label: 'Error', expression: 'Usa ≤ o ≥ para despejar x', value: '' }] }
+  }
+
+  // Convert to P(X ≤ x) = targetCDF
+  let targetCDF = probability
+  if (op === '>' || op === '>=') {
+    targetCDF = 1 - probability
+    steps.push({
+      label: 'Conversión',
+      expression: `P(X > x) = ${probability.toFixed(4)} → P(X ≤ x) = 1 − ${probability.toFixed(4)}`,
+      value: targetCDF.toFixed(4),
+    })
+  }
+
+  let z: number
+  if (Math.abs(targetCDF - 0.5) < 0.00001) {
+    z = 0
+    steps.push({ label: 'Z', expression: 'P = 0.5 → z = 0 (valor en la media)', value: '0.00' })
+  } else if (targetCDF > 0.5) {
+    const area = targetCDF - 0.5
+    steps.push({ label: 'Área', expression: `P(0 ≤ Z ≤ z) = ${targetCDF.toFixed(4)} − 0.5`, value: area.toFixed(4) })
+    z = inverseZTable(area)
+    steps.push({ label: 'Z (tabla)', expression: `z tal que P(0 ≤ Z ≤ z) ≈ ${area.toFixed(4)}`, value: z.toFixed(2) })
+  } else {
+    const area = 0.5 - targetCDF
+    steps.push({ label: 'Área', expression: `P(0 ≤ Z ≤ |z|) = 0.5 − ${targetCDF.toFixed(4)}`, value: area.toFixed(4) })
+    z = -inverseZTable(area)
+    steps.push({ label: 'Z (tabla)', expression: `−z tal que P(0 ≤ Z ≤ |z|) ≈ ${area.toFixed(4)}`, value: z.toFixed(2) })
+  }
+
+  const x = mu + z * sigma
+  steps.push({
+    label: 'Despeje',
+    expression: `x = μ + z · σ = ${mu} + (${z.toFixed(2)}) · ${sigma}`,
+    value: x.toFixed(4),
+  })
+
+  return { x, z, steps }
 }
 
 // ─── Continuous inciso evaluators ──────────────────────────────────────
