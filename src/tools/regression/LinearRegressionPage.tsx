@@ -566,14 +566,11 @@ function IntervalsPanel({ res, alpha }: { res: RegressionResult; alpha: number }
           <div className="bg-zinc-50 rounded-lg p-4 space-y-3">
             <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Fórmula</p>
             <MathDisplay
-              latex={`\\hat{y} \\pm t_{\\alpha/2,\\, n-2} \\cdot S_{xy} \\cdot \\sqrt{\\frac{1}{n} + \\frac{(x_0 - \\bar{x})^2}{\\sum(x - \\bar{x})^2}}`}
+              latex={`\\hat{y} \\pm t \\cdot S_{xy} \\cdot \\sqrt{\\frac{1}{n} + \\frac{(x_0 - \\bar{x})^2}{\\sum(x - \\bar{x})^2}}`}
               className="text-base"
             />
             <p className="text-xs text-zinc-400">
-              Valor crítico&nbsp;
-              <span className="font-mono font-semibold text-zinc-700">
-                t<sub>{alpha/2}</sub>(gl={df}) = {f4(tCrit)}
-              </span>
+              t = <span className="font-mono font-semibold text-zinc-700">{f4(tCrit)}</span>
               &nbsp;·&nbsp; S<sub>xy</sub> = {f2(sxy)} &nbsp;·&nbsp; n = {n} &nbsp;·&nbsp; x̄ = {f4(xMean)}
             </p>
           </div>
@@ -607,7 +604,7 @@ function IntervalsPanel({ res, alpha }: { res: RegressionResult; alpha: number }
           <div className="bg-zinc-50 rounded-lg p-4 space-y-3">
             <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Fórmula</p>
             <MathDisplay
-              latex={`\\hat{y} \\pm t_{\\alpha/2,\\, n-2} \\cdot S_{xy} \\cdot \\sqrt{1 + \\frac{1}{n} + \\frac{(x_0 - \\bar{x})^2}{\\sum(x - \\bar{x})^2}}`}
+              latex={`\\hat{y} \\pm t \\cdot S_{xy} \\cdot \\sqrt{1 + \\frac{1}{n} + \\frac{(x_0 - \\bar{x})^2}{\\sum(x - \\bar{x})^2}}`}
               className="text-base"
             />
             <p className="text-xs text-zinc-400">
