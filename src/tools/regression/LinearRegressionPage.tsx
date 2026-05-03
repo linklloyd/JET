@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Plus, Trash2, Calculator, TrendingUp } from 'lucide-react'
+import { Plus, Trash2, Calculator, TrendingUp, Copy, ClipboardPaste } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 
 // ─── Math helpers ─────────────────────────────────────────────────────────────
@@ -133,6 +133,54 @@ function computeRegression(rows: DataRow[]): RegressionResult | null {
   }
 }
 
+// ─── Copy / Paste buttons (same pattern as Matrices) ─────────────────────────
+
+function DataCopyPaste({ rows, onPaste }: {
+  rows: DataRow[]
+  onPaste: (rows: DataRow[]) => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    const text = rows
+      .filter(r => r.x.trim() !== '' || r.y.trim() !== '')
+      .map(r => `${r.x}\t${r.y}`)
+      .join('\n')
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      const lines = text.trim().split('\n').filter(l => l.trim())
+      const parsed: DataRow[] = lines.flatMap(line => {
+        const parts = line.trim().split(/[\t,;]+/)
+        if (parts.length < 2) return []
+        return [{ x: parts[0].trim(), y: parts[1].trim() }]
+      })
+      if (parsed.length >= 2) onPaste(parsed)
+    } catch { /* clipboard permission denied */ }
+  }
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <button onClick={handleCopy}
+        className="p-1.5 rounded text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+        title="Copiar datos (X Y)">
+        <Copy size={13} />
+      </button>
+      <button onClick={handlePaste}
+        className="p-1.5 rounded text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+        title="Pegar datos desde Excel">
+        <ClipboardPaste size={13} />
+      </button>
+      {copied && <span className="text-[10px] text-green-600 font-medium ml-1">Copiado!</span>}
+    </div>
+  )
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function LinearRegressionPage() {
@@ -141,9 +189,6 @@ export function LinearRegressionPage() {
   )
   const [result, setResult] = useState<RegressionResult | null>(null)
   const [error, setError] = useState('')
-  const [showPaste, setShowPaste] = useState(false)
-  const [pasteText, setPasteText] = useState('')
-  const [pasteError, setPasteError] = useState('')
 
   const addRow = () => setRows(r => [...r, { x: '', y: '' }])
   const removeRow = (i: number) => setRows(r => r.filter((_, j) => j !== i))
@@ -156,25 +201,6 @@ export function LinearRegressionPage() {
     else { setError(''); setResult(res) }
   }
 
-  // Parse pasted data (tab- or comma-separated, one pair per line)
-  const handlePaste = () => {
-    const lines = pasteText.trim().split('\n').filter(l => l.trim())
-    const parsed: DataRow[] = []
-    for (const line of lines) {
-      const parts = line.trim().split(/[\t,;]+/)
-      if (parts.length < 2) { setPasteError(`Línea inválida: "${line}" — necesita X e Y separados por tab, coma o punto y coma.`); return }
-      const x = parts[0].trim().replace(',', '.')
-      const y = parts[1].trim().replace(',', '.')
-      if (isNaN(+x) || isNaN(+y)) { setPasteError(`Valores no numéricos en: "${line}"`); return }
-      parsed.push({ x, y })
-    }
-    if (parsed.length < 2) { setPasteError('Necesitas al menos 2 filas.'); return }
-    setPasteError('')
-    setRows(parsed)
-    setShowPaste(false)
-    setPasteText('')
-  }
-
   return (
     <div className="space-y-6">
       <div>
@@ -185,44 +211,16 @@ export function LinearRegressionPage() {
         </p>
       </div>
 
-      {/* ── Pegar desde tabla ── */}
-      <div className="bg-white border border-zinc-200 rounded-lg p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Pegar desde Excel / tabla</p>
-          <button
-            onClick={() => setShowPaste(v => !v)}
-            className="text-xs px-2 py-1 rounded border border-zinc-200 text-zinc-500 hover:bg-zinc-100 transition-colors"
-          >
-            {showPaste ? 'Cancelar' : 'Pegar datos'}
-          </button>
-        </div>
-        {showPaste && (
-          <div className="space-y-2">
-            <p className="text-xs text-zinc-400">
-              Copia dos columnas de Excel (X e Y) y pégalas aquí. Acepta tabulaciones, comas o punto y coma como separadores.
-            </p>
-            <textarea
-              value={pasteText}
-              onChange={e => setPasteText(e.target.value)}
-              placeholder={'30\t70\n20\t40\n10\t30'}
-              rows={6}
-              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 resize-y"
-            />
-            {pasteError && <p className="text-xs text-red-500">{pasteError}</p>}
-            <Button onClick={handlePaste} variant="primary" size="sm">
-              <Plus size={13} /> Cargar datos
-            </Button>
-          </div>
-        )}
-      </div>
-
-      {/* ── Input manual ── */}
+      {/* ── Input ── */}
       <div className="bg-white border border-zinc-200 rounded-lg p-5">
         <div className="flex items-center justify-between mb-4">
           <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Datos</p>
-          <Button onClick={addRow} variant="secondary" size="sm">
-            <Plus size={13} /> Agregar fila
-          </Button>
+          <div className="flex items-center gap-2">
+            <DataCopyPaste rows={rows} onPaste={setRows} />
+            <Button onClick={addRow} variant="secondary" size="sm">
+              <Plus size={13} /> Agregar fila
+            </Button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
