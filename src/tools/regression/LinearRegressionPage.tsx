@@ -514,26 +514,33 @@ function ScatterChart({
     const cx = (x: number) => pad.left + ((x - xLo) / (xHi - xLo)) * cW
     const cy = (y: number) => pad.top + cH - ((y - yLo) / (yHi - yLo)) * cH
 
-    // Grid
-    ctx.strokeStyle = '#e4e4e7'
-    ctx.lineWidth = 1
+    // Grid — usar los valores reales de X e Y como ticks
     ctx.font = '10px ui-monospace, monospace'
-    ctx.fillStyle = '#a1a1aa'
-    const gridN = 5
-    for (let i = 0; i <= gridN; i++) {
-      const yv = yLo + ((yHi - yLo) / gridN) * i
+
+    const uniqueX = [...new Set(xData)].sort((a, b) => a - b)
+    const uniqueY = [...new Set(yData)].sort((a, b) => a - b)
+
+    // Líneas horizontales y labels Y
+    uniqueY.forEach(yv => {
       const y = cy(yv)
+      ctx.strokeStyle = '#e4e4e7'
+      ctx.lineWidth = 1
       ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke()
+      ctx.fillStyle = '#a1a1aa'
       ctx.textAlign = 'right'
-      ctx.fillText(r4(yv).toFixed(1), pad.left - 5, y + 3)
-    }
-    for (let i = 0; i <= gridN; i++) {
-      const xv = xLo + ((xHi - xLo) / gridN) * i
+      ctx.fillText(String(yv), pad.left - 5, y + 3)
+    })
+
+    // Líneas verticales y labels X
+    uniqueX.forEach(xv => {
       const x = cx(xv)
+      ctx.strokeStyle = '#e4e4e7'
+      ctx.lineWidth = 1
       ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, H - pad.bottom); ctx.stroke()
+      ctx.fillStyle = '#a1a1aa'
       ctx.textAlign = 'center'
-      ctx.fillText(r4(xv).toFixed(1), x, H - pad.bottom + 14)
-    }
+      ctx.fillText(String(xv), x, H - pad.bottom + 14)
+    })
 
     // Axis labels
     ctx.fillStyle = '#71717a'
