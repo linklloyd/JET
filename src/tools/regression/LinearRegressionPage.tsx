@@ -13,6 +13,12 @@ function calcMean(arr: number[]): number {
   return arr.reduce((s, v) => s + v, 0) / arr.length
 }
 
+function calcMedian(arr: number[]): number {
+  const s = [...arr].sort((a, b) => a - b)
+  const mid = Math.floor(s.length / 2)
+  return s.length % 2 !== 0 ? s[mid] : (s[mid - 1] + s[mid]) / 2
+}
+
 function calcMode(arr: number[]): number[] {
   const freq: Record<number, number> = {}
   arr.forEach(v => { freq[v] = (freq[v] || 0) + 1 })
@@ -33,6 +39,7 @@ interface RegressionResult {
   xData: number[]; yData: number[]
   xSum: number; ySum: number
   xMean: number; yMean: number
+  xMedian: number; yMedian: number
   xMode: number[]; yMode: number[]
   xRows: { i: number; x: number; dev: number; devSq: number }[]
   yRows: { i: number; y: number; dev: number; devSq: number }[]
@@ -97,6 +104,7 @@ function computeRegression(rows: DataRow[]): RegressionResult | null {
   return {
     n, xData, yData, xSum, ySum,
     xMean: r4(xMean), yMean: r4(yMean),
+    xMedian: calcMedian(xData), yMedian: calcMedian(yData),
     xMode: calcMode(xData), yMode: calcMode(yData),
     xRows, yRows, crossRows,
     sumXDevSq, sumYDevSq, sumCross,
@@ -219,6 +227,7 @@ function Results({ res }: { res: RegressionResult }) {
           data={res.xData}
           sum={res.xSum}
           mean={res.xMean}
+          median={res.xMedian}
           mode={res.xMode}
           sumDevSq={res.sumXDevSq}
           variance={res.xVariance}
@@ -243,6 +252,7 @@ function Results({ res }: { res: RegressionResult }) {
           data={res.yData}
           sum={res.ySum}
           mean={res.yMean}
+          median={res.yMedian}
           mode={res.yMode}
           sumDevSq={res.sumYDevSq}
           variance={res.yVariance}
@@ -383,13 +393,18 @@ function Results({ res }: { res: RegressionResult }) {
 // ─── Stats block (X or Y) ─────────────────────────────────────────────────────
 
 function StatsBlock({
-  data, sum, mean, mode, sumDevSq, variance, stdDev, varName,
+  data, sum, mean, median, mode, sumDevSq, variance, stdDev, varName,
 }: {
-  data: number[]; sum: number; mean: number; mode: number[]
+  data: number[]; sum: number; mean: number; median: number; mode: number[]
   sumDevSq: number; variance: number; stdDev: number; varName: string
 }) {
   const sorted = [...data].sort((a, b) => a - b)
   const modeLabel = mode.length === 0 ? 'Amodal (sin moda)' : mode.join(', ')
+  const n = data.length
+  const mid = Math.floor(n / 2)
+  const medianExpr = n % 2 !== 0
+    ? `posición ${mid + 1} → ${sorted[mid]}`
+    : `(${sorted[mid - 1]} + ${sorted[mid]}) / 2 = ${median}`
 
   return (
     <div className="space-y-4">
@@ -411,6 +426,20 @@ function StatsBlock({
           x̄ = ({sorted.join(' + ')}) / {data.length} = {f4(sum)} / {data.length}
         </p>
         <p className="text-sm font-bold font-mono text-zinc-800">x̄ = {f4(mean)}</p>
+      </div>
+
+      {/* Mediana */}
+      <div className="bg-zinc-50 rounded-lg p-4">
+        <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-2">
+          Mediana (datos ordenados)
+        </p>
+        <p className="text-xs text-zinc-400 font-mono mb-1">
+          Datos ordenados: {sorted.join(', ')}
+        </p>
+        <p className="text-xs text-zinc-500 font-mono mb-1">
+          n = {n} → {n % 2 !== 0 ? 'n impar,' : 'n par,'} {medianExpr}
+        </p>
+        <p className="text-sm font-bold font-mono text-zinc-800">Mediana = {f4(median)}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
