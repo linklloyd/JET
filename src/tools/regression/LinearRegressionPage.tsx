@@ -9,6 +9,10 @@ function r2(x: number): number { return Math.round(x * 100) / 100 }
 function f4(x: number): string { return x.toFixed(4) }
 function f2(x: number): string { return x.toFixed(2) }
 
+function calcMean(arr: number[]): number {
+  return arr.reduce((s, v) => s + v, 0) / arr.length
+}
+
 function calcMode(arr: number[]): number[] {
   const freq: Record<number, number> = {}
   arr.forEach(v => { freq[v] = (freq[v] || 0) + 1 })
@@ -52,8 +56,8 @@ function computeRegression(rows: DataRow[]): RegressionResult | null {
 
   const xSum = xData.reduce((s, v) => s + v, 0)
   const ySum = yData.reduce((s, v) => s + v, 0)
-  const xMean = xSum / n
-  const yMean = ySum / n
+  const xMean = calcMean(xData)
+  const yMean = calcMean(yData)
 
   const xRows = xData.map((x, i) => ({
     i: i + 1, x,
