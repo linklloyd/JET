@@ -567,7 +567,9 @@ function IntervalsPanel({ res }: { res: RegressionResult }) {
             headers={['i', 'x₀', 'ŷ', '(x₀−x̄)²', 'Interior raíz', '√Interior', 't·Sxy·√', 'LI (ŷ−)', 'LS (ŷ+)']}
             rows={rows.map(r => [
               r.i, r.x, f4(r.yHat), f4(r.xDevSq),
-              f4(r.inner), f4(r.sqrtIC), f4(r.eIC),
+              `1/${n} + ${f4(r.xDevSq)}/${f4(sumXDevSq)}`,
+              `√${f4(r.inner)}`,
+              f4(r.eIC),
               f4(r.icLI), f4(r.icLS),
             ])}
             sumRow={null}
@@ -605,7 +607,9 @@ function IntervalsPanel({ res }: { res: RegressionResult }) {
             headers={['i', 'x₀', 'ŷ', '(x₀−x̄)²', 'Interior raíz', '√Interior', 't·Sxy·√', 'LI (ŷ−)', 'LS (ŷ+)']}
             rows={rows.map(r => [
               r.i, r.x, f4(r.yHat), f4(r.xDevSq),
-              f4(r.innerP), f4(r.sqrtIP), f4(r.eIP),
+              `1 + 1/${n} + ${f4(r.xDevSq)}/${f4(sumXDevSq)}`,
+              `√${f4(r.innerP)}`,
+              f4(r.eIP),
               f4(r.ipLI), f4(r.ipLS),
             ])}
             sumRow={null}
