@@ -438,7 +438,7 @@ function tStudentPDF(t: number, df: number): number {
   return coeff * Math.pow(1 + t * t / df, -(df + 1) / 2)
 }
 
-function tStudentCDF(t: number, df: number): number {
+export function tStudentCDF(t: number, df: number): number {
   if (t === 0) return 0.5
   const x = df / (df + t * t)
   const ib = betaIncomplete(x, df / 2, 0.5)

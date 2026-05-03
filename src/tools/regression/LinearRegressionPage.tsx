@@ -1,6 +1,21 @@
 import { useState, useRef, useEffect } from 'react'
 import { Plus, Trash2, Calculator, TrendingUp, Copy, ClipboardPaste } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
+import { tStudentCDF } from '../probability/distributions'
+
+// ─── Inverse t-distribution (binary search) ───────────────────────────────────
+// Returns t such that P(T ≤ t) = p, for given degrees of freedom df
+function tInverse(p: number, df: number): number {
+  if (p <= 0) return -Infinity
+  if (p >= 1) return Infinity
+  let lo = 0, hi = 50
+  for (let i = 0; i < 80; i++) {
+    const mid = (lo + hi) / 2
+    if (tStudentCDF(mid, df) < p) lo = mid
+    else hi = mid
+  }
+  return (lo + hi) / 2
+}
 
 // ─── Math helpers ─────────────────────────────────────────────────────────────
 
@@ -189,6 +204,7 @@ export function LinearRegressionPage() {
   )
   const [result, setResult] = useState<RegressionResult | null>(null)
   const [error, setError] = useState('')
+  const [alpha, setAlpha] = useState(0.05) // 1−α = confidence level
 
   const addRow = () => setRows(r => [...r, { x: '', y: '' }])
   const removeRow = (i: number) => setRows(r => r.filter((_, j) => j !== i))
@@ -270,15 +286,37 @@ export function LinearRegressionPage() {
         </div>
       </div>
 
+      {/* ── Nivel de confianza ── */}
+      {result && (
+        <div className="bg-white border border-zinc-200 rounded-lg px-5 py-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <p className="text-xs font-bold text-zinc-600 uppercase tracking-wide">Nivel de confianza</p>
+            {[0.10, 0.05, 0.01].map(a => (
+              <label key={a} className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio" name="alpha" value={a}
+                  checked={alpha === a}
+                  onChange={() => setAlpha(a)}
+                  className="accent-blue-600"
+                />
+                <span className={`text-sm font-semibold ${alpha === a ? 'text-blue-700' : 'text-zinc-600'}`}>
+                  {(1 - a) * 100}% (α = {a})
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Results ── */}
-      {result && <Results res={result} />}
+      {result && <Results res={result} alpha={alpha} />}
     </div>
   )
 }
 
 // ─── Results section ──────────────────────────────────────────────────────────
 
-function Results({ res }: { res: RegressionResult }) {
+function Results({ res, alpha }: { res: RegressionResult; alpha: number }) {
   return (
     <div className="space-y-6">
 
@@ -477,6 +515,127 @@ function Results({ res }: { res: RegressionResult }) {
         <p className="text-xs text-zinc-400 text-center mt-2 font-mono">
           ŷ = {f2(res.a)} + {f2(res.b)}(x) &nbsp;·&nbsp; r = {f2(res.r)}
         </p>
+      </Panel>
+
+      {/* ── Intervalos ── */}
+      <IntervalsPanel res={res} alpha={alpha} />
+
+    </div>
+  )
+}
+
+// ─── Intervals panel ──────────────────────────────────────────────────────────
+
+function IntervalsPanel({ res, alpha }: { res: RegressionResult; alpha: number }) {
+  const { n, xData, xMean, sumXDevSq, sxy, a, b } = res
+  const df = n - 2
+  const conf = (1 - alpha) * 100
+  const tCrit = r4(tInverse(1 - alpha / 2, df))
+  const a2 = r2(a), b2 = r2(b)
+
+  const rows = xData.map((x, i) => {
+    const yHat = r4(a2 + b2 * x)
+    const xDev = r4(x - xMean)
+    const inner = r4(1 / n + (xDev ** 2) / sumXDevSq)
+    const innerP = r4(1 + 1 / n + (xDev ** 2) / sumXDevSq)
+
+    const eIC = r4(tCrit * sxy * Math.sqrt(inner))
+    const eIP = r4(tCrit * sxy * Math.sqrt(innerP))
+
+    return {
+      i: i + 1,
+      x,
+      yHat,
+      icLI: r4(yHat - eIC),
+      icLS: r4(yHat + eIC),
+      eIC,
+      ipLI: r4(yHat - eIP),
+      ipLS: r4(yHat + eIP),
+      eIP,
+    }
+  })
+
+  return (
+    <div className="space-y-6">
+
+      {/* ── IC para la media de Y ── */}
+      <Panel title={`Intervalo de Confianza para la Media de Y (${conf}%)`}>
+        <div className="space-y-4">
+          {/* Fórmula */}
+          <div className="bg-zinc-50 rounded-lg p-4 space-y-2">
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-2">Fórmula</p>
+            <div className="space-y-1 text-xs font-mono text-zinc-600 italic">
+              <p>ŷ ± t(α/2, n−2) · Sxy · √[ 1/n + (x₀ − x̄)² / Σ(x − x̄)² ]</p>
+              <p className="text-zinc-400 not-italic font-sans">
+                donde t({alpha}/2, {df}) = t({alpha/2}, {df}) = <span className="font-mono font-semibold text-zinc-700">{f4(tCrit)}</span>
+                &nbsp;·&nbsp; Sxy = {f2(sxy)} &nbsp;·&nbsp; n = {n} &nbsp;·&nbsp; x̄ = {f4(xMean)}
+              </p>
+            </div>
+          </div>
+
+          {/* Tabla */}
+          <DataTable
+            headers={['i', 'x₀', 'ŷ', 'Margen', `LI (${conf}%)`, `LS (${conf}%)`]}
+            rows={rows.map(r => [r.i, r.x, f4(r.yHat), f4(r.eIC), f4(r.icLI), f4(r.icLS)])}
+            sumRow={null}
+            colColors={['zinc', 'blue', 'purple', 'amber', 'emerald', 'emerald']}
+          />
+
+          {/* Interpretaciones */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Interpretación</p>
+            {rows.map(r => (
+              <div key={r.i} className="text-xs text-zinc-600 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2">
+                <span className="font-semibold text-emerald-800">x₀ = {r.x}:</span>{' '}
+                Con {conf}% de confianza, el <span className="font-semibold">promedio de Y</span> cuando
+                X = {r.x} se encuentra entre <span className="font-mono font-semibold">{f4(r.icLI)}</span> y <span className="font-mono font-semibold">{f4(r.icLS)}</span>.
+              </div>
+            ))}
+          </div>
+        </div>
+      </Panel>
+
+      {/* ── IP para un valor individual de Y ── */}
+      <Panel title={`Intervalo de Predicción para un Valor Individual de Y (${conf}%)`}>
+        <div className="space-y-4">
+          {/* Fórmula */}
+          <div className="bg-zinc-50 rounded-lg p-4 space-y-2">
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-2">Fórmula</p>
+            <div className="space-y-1 text-xs font-mono text-zinc-600 italic">
+              <p>ŷ ± t(α/2, n−2) · Sxy · √[ 1 + 1/n + (x₀ − x̄)² / Σ(x − x̄)² ]</p>
+              <p className="text-zinc-400 not-italic font-sans">
+                El intervalo de predicción es más amplio que el de confianza porque incluye la variabilidad individual.
+              </p>
+            </div>
+          </div>
+
+          {/* Tabla */}
+          <DataTable
+            headers={['i', 'x₀', 'ŷ', 'Margen', `LI (${conf}%)`, `LS (${conf}%)`]}
+            rows={rows.map(r => [r.i, r.x, f4(r.yHat), f4(r.eIP), f4(r.ipLI), f4(r.ipLS)])}
+            sumRow={null}
+            colColors={['zinc', 'blue', 'purple', 'amber', 'blue', 'blue']}
+          />
+
+          {/* Interpretaciones */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Interpretación</p>
+            {rows.map(r => (
+              <div key={r.i} className="text-xs text-zinc-600 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
+                <span className="font-semibold text-blue-800">x₀ = {r.x}:</span>{' '}
+                Con {conf}% de confianza, un <span className="font-semibold">valor individual de Y</span> cuando
+                X = {r.x} se encontrará entre <span className="font-mono font-semibold">{f4(r.ipLI)}</span> y <span className="font-mono font-semibold">{f4(r.ipLS)}</span>.
+              </div>
+            ))}
+          </div>
+
+          {/* Nota comparativa */}
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800">
+            <span className="font-bold">Diferencia clave:</span> El IC para la media estima dónde está el
+            <em> promedio poblacional</em> de Y, mientras que el IP estima dónde caerá un
+            <em> valor individual</em> futuro de Y. Por eso el IP siempre es más amplio.
+          </div>
+        </div>
       </Panel>
 
     </div>
