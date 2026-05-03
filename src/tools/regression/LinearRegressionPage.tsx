@@ -54,6 +54,9 @@ interface RegressionResult {
   xStdDev: number; yStdDev: number
   r: number; t: number
   b: number; a: number
+  errorRows: { i: number; y: number; yHat: number; res: number; resSq: number }[]
+  sumResidualSq: number
+  sxy: number
 }
 
 // ─── Computation ──────────────────────────────────────────────────────────────
@@ -104,8 +107,18 @@ function computeRegression(rows: DataRow[]): RegressionResult | null {
   const t = r2(rRaw * Math.sqrt(n - 2) / Math.sqrt(1 - rRaw ** 2))
 
   const b = r4(sumCross / sumXDevSq)
-  const bFinal = r2(b)               // b redondeado a 2 decimales (versión final)
-  const a = r4(yMean - bFinal * xMean) // a se calcula usando b final
+  const bFinal = r2(b)
+  const a = r4(yMean - bFinal * xMean)
+  const a2 = r2(a), b2 = r2(b)
+
+  // Error de estimación
+  const errorRows = yData.map((y, i) => {
+    const yHat = r4(a2 + b2 * xData[i])
+    const res   = r4(y - yHat)
+    return { i: i + 1, y, yHat, res, resSq: r4(res * res) }
+  })
+  const sumResidualSq = r4(errorRows.reduce((s, r) => s + r.resSq, 0))
+  const sxy = r2(Math.sqrt(sumResidualSq / (n - 2)))
 
   return {
     n, xData, yData, xSum, ySum,
@@ -116,6 +129,7 @@ function computeRegression(rows: DataRow[]): RegressionResult | null {
     sumXDevSq, sumYDevSq, sumCross,
     xVariance, yVariance, xStdDev, yStdDev,
     r, t, b, a,
+    errorRows, sumResidualSq, sxy,
   }
 }
 
@@ -127,6 +141,9 @@ export function LinearRegressionPage() {
   )
   const [result, setResult] = useState<RegressionResult | null>(null)
   const [error, setError] = useState('')
+  const [showPaste, setShowPaste] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [pasteError, setPasteError] = useState('')
 
   const addRow = () => setRows(r => [...r, { x: '', y: '' }])
   const removeRow = (i: number) => setRows(r => r.filter((_, j) => j !== i))
@@ -139,6 +156,25 @@ export function LinearRegressionPage() {
     else { setError(''); setResult(res) }
   }
 
+  // Parse pasted data (tab- or comma-separated, one pair per line)
+  const handlePaste = () => {
+    const lines = pasteText.trim().split('\n').filter(l => l.trim())
+    const parsed: DataRow[] = []
+    for (const line of lines) {
+      const parts = line.trim().split(/[\t,;]+/)
+      if (parts.length < 2) { setPasteError(`Línea inválida: "${line}" — necesita X e Y separados por tab, coma o punto y coma.`); return }
+      const x = parts[0].trim().replace(',', '.')
+      const y = parts[1].trim().replace(',', '.')
+      if (isNaN(+x) || isNaN(+y)) { setPasteError(`Valores no numéricos en: "${line}"`); return }
+      parsed.push({ x, y })
+    }
+    if (parsed.length < 2) { setPasteError('Necesitas al menos 2 filas.'); return }
+    setPasteError('')
+    setRows(parsed)
+    setShowPaste(false)
+    setPasteText('')
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -149,7 +185,38 @@ export function LinearRegressionPage() {
         </p>
       </div>
 
-      {/* ── Input ── */}
+      {/* ── Pegar desde tabla ── */}
+      <div className="bg-white border border-zinc-200 rounded-lg p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Pegar desde Excel / tabla</p>
+          <button
+            onClick={() => setShowPaste(v => !v)}
+            className="text-xs px-2 py-1 rounded border border-zinc-200 text-zinc-500 hover:bg-zinc-100 transition-colors"
+          >
+            {showPaste ? 'Cancelar' : 'Pegar datos'}
+          </button>
+        </div>
+        {showPaste && (
+          <div className="space-y-2">
+            <p className="text-xs text-zinc-400">
+              Copia dos columnas de Excel (X e Y) y pégalas aquí. Acepta tabulaciones, comas o punto y coma como separadores.
+            </p>
+            <textarea
+              value={pasteText}
+              onChange={e => setPasteText(e.target.value)}
+              placeholder={'30\t70\n20\t40\n10\t30'}
+              rows={6}
+              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm font-mono outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 resize-y"
+            />
+            {pasteError && <p className="text-xs text-red-500">{pasteError}</p>}
+            <Button onClick={handlePaste} variant="primary" size="sm">
+              <Plus size={13} /> Cargar datos
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Input manual ── */}
       <div className="bg-white border border-zinc-200 rounded-lg p-5">
         <div className="flex items-center justify-between mb-4">
           <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Datos</p>
@@ -383,6 +450,26 @@ function Results({ res }: { res: RegressionResult }) {
               colColors={['zinc', 'blue', 'zinc', 'purple']}
             />
           </div>
+        </div>
+      </Panel>
+
+      {/* ── Error de estimación Sxy ── */}
+      <Panel title="Error de Estimación (Sxy)">
+        <DataTable
+          headers={['i', 'y', 'ŷ', 'y − ŷ', '(y − ŷ)²']}
+          rows={res.errorRows.map(r => [r.i, r.y, f4(r.yHat), f4(r.res), f4(r.resSq)])}
+          sumRow={['Σ', '', '', '', f4(res.sumResidualSq)]}
+          colColors={['zinc', 'emerald', 'purple', 'amber', 'blue']}
+        />
+        <div className="space-y-3 mt-2">
+          <FormulaBlock
+            steps={[
+              { label: 'Fórmula', expr: 'Sxy = √[ Σ(y − ŷ)² / (n − 2) ]' },
+              { label: 'Sustitución', expr: `Sxy = √[ ${f4(res.sumResidualSq)} / (${res.n} − 2) ]` },
+              { label: '', expr: `Sxy = √[ ${f4(res.sumResidualSq)} / ${res.n - 2} ] = √${f4(res.sumResidualSq / (res.n - 2))}` },
+            ]}
+          />
+          <ResultBadge label="Sxy =" value={f2(res.sxy)} color="blue" />
         </div>
       </Panel>
 
