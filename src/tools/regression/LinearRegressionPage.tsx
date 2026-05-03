@@ -3,6 +3,7 @@ import { Plus, Trash2, Calculator, TrendingUp, Copy, ClipboardPaste } from 'luci
 import { Button } from '../../components/ui/Button'
 import { MathDisplay } from '../../components/ui/MathInput'
 import { tStudentCDF } from '../probability/distributions'
+import { useLocalStorage } from '../../hooks/useLocalStorage'
 
 // ─── Inverse t-distribution (binary search) ───────────────────────────────────
 // Returns t such that P(T ≤ t) = p, for given degrees of freedom df
@@ -197,15 +198,33 @@ function DataCopyPaste({ rows, onPaste }: {
   )
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatSavedAt(ts: number): string {
+  const diff = Date.now() - ts
+  const mins = Math.floor(diff / 60_000)
+  if (mins < 1)  return 'hace un momento'
+  if (mins < 60) return `hace ${mins} min`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24)  return `hace ${hrs} h`
+  return `hace ${Math.floor(hrs / 24)} días`
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function LinearRegressionPage() {
-  const [rows, setRows] = useState<DataRow[]>(
-    Array.from({ length: 6 }, () => ({ x: '', y: '' }))
+  const [rows, setRows, rowsSavedAt] = useLocalStorage<DataRow[]>(
+    'jet-regression-rows',
+    Array.from({ length: 6 }, () => ({ x: '', y: '' })),
   )
+  const [alpha, setAlpha, alphaSavedAt] = useLocalStorage<number>(
+    'jet-regression-alpha',
+    0.05,
+  )
+  const savedAt = rowsSavedAt ?? alphaSavedAt
+
   const [result, setResult] = useState<RegressionResult | null>(null)
   const [error, setError] = useState('')
-  const [alpha, setAlpha] = useState(0.05) // 1−α = confidence level
 
   const addRow = () => setRows(r => [...r, { x: '', y: '' }])
   const removeRow = (i: number) => setRows(r => r.filter((_, j) => j !== i))
@@ -220,12 +239,20 @@ export function LinearRegressionPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-zinc-900">Regresión Lineal</h2>
-        <p className="text-sm text-zinc-500 mt-1">
-          Ingresa los datos para calcular la recta de regresión&nbsp;
-          <span className="font-mono italic">ŷ = a + b(x)</span>
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="text-2xl font-bold text-zinc-900">Regresión Lineal</h2>
+          <p className="text-sm text-zinc-500 mt-1">
+            Ingresa los datos para calcular la recta de regresión&nbsp;
+            <span className="font-mono italic">ŷ = a + b(x)</span>
+          </p>
+        </div>
+        {savedAt && (
+          <div className="flex items-center gap-1.5 text-xs text-zinc-400 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-1.5 shrink-0">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+            Datos guardados · {formatSavedAt(savedAt)}
+          </div>
+        )}
       </div>
 
       {/* ── Input ── */}
