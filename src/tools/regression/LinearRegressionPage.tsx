@@ -6,8 +6,8 @@ import { Button } from '../../components/ui/Button'
 
 function r4(x: number): number { return Math.round(x * 10000) / 10000 }
 function r2(x: number): number { return Math.round(x * 100) / 100 }
-function f4(x: number): string { return x.toFixed(4) }
-function f2(x: number): string { return x.toFixed(2) }
+function f4(x: number): string { return parseFloat(x.toFixed(4)).toString() }
+function f2(x: number): string { return parseFloat(x.toFixed(2)).toString() }
 
 function calcMean(arr: number[]): number {
   return arr.reduce((s, v) => s + v, 0) / arr.length
