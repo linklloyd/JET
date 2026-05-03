@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Plus, Trash2, Calculator, TrendingUp, Copy, ClipboardPaste } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
+import { MathDisplay } from '../../components/ui/MathInput'
 import { tStudentCDF } from '../probability/distributions'
 
 // ─── Inverse t-distribution (binary search) ───────────────────────────────────
@@ -392,7 +393,7 @@ function Results({ res, alpha }: { res: RegressionResult; alpha: number }) {
             steps={[
               {
                 label: 'Fórmula',
-                expr: 'r = Σ(x − x̄)(y − ȳ) / √[ Σ(x − x̄)² · Σ(y − ȳ)² ]',
+                latex: 'r = \\frac{\\sum(x - \\bar{x})(y - \\bar{y})}{\\sqrt{\\sum(x - \\bar{x})^2 \\cdot \\sum(y - \\bar{y})^2}}',
               },
               {
                 label: 'Sustitución',
@@ -416,7 +417,7 @@ function Results({ res, alpha }: { res: RegressionResult; alpha: number }) {
         <div className="space-y-4">
           <FormulaBlock
             steps={[
-              { label: 'Fórmula', expr: 't = r · √(n − 2) / √(1 − r²)' },
+              { label: 'Fórmula', latex: 't = \\frac{r\\sqrt{n-2}}{\\sqrt{1-r^2}}' },
               {
                 label: 'Sustitución',
                 expr: `t = ${f2(res.r)} · √(${res.n} − 2) / √(1 − ${f2(res.r)}²)`,
@@ -444,7 +445,7 @@ function Results({ res, alpha }: { res: RegressionResult; alpha: number }) {
               <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Pendiente b</p>
               <FormulaBlock
                 steps={[
-                  { label: 'Fórmula', expr: 'b = Σ(x − x̄)(y − ȳ) / Σ(x − x̄)²' },
+                  { label: 'Fórmula', latex: 'b = \\frac{\\sum(x - \\bar{x})(y - \\bar{y})}{\\sum(x - \\bar{x})^2}' },
                   { label: 'Sustitución', expr: `b = ${f4(res.sumCross)} / ${f4(res.sumXDevSq)}` },
                 ]}
               />
@@ -455,7 +456,7 @@ function Results({ res, alpha }: { res: RegressionResult; alpha: number }) {
               <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Intercepto a</p>
               <FormulaBlock
                 steps={[
-                  { label: 'Fórmula', expr: 'a = ȳ − b · x̄' },
+                  { label: 'Fórmula', latex: 'a = \\bar{y} - b \\cdot \\bar{x}' },
                   { label: 'Sustitución', expr: `a = ${f2(res.yMean)} − ${f2(res.b)} · ${f2(res.xMean)}` },
                   { label: '', expr: `a = ${f2(res.yMean)} − ${f4(r2(res.b) * res.xMean)}` },
                 ]}
@@ -500,7 +501,7 @@ function Results({ res, alpha }: { res: RegressionResult; alpha: number }) {
         <div className="space-y-3 mt-2">
           <FormulaBlock
             steps={[
-              { label: 'Fórmula', expr: 'Sxy = √[ Σ(y − ŷ)² / (n − 2) ]' },
+              { label: 'Fórmula', latex: 'S_{xy} = \\sqrt{\\frac{\\sum(y - \\hat{y})^2}{n - 2}}' },
               { label: 'Sustitución', expr: `Sxy = √[ ${f4(res.sumResidualSq)} / (${res.n} − 2) ]` },
               { label: '', expr: `Sxy = √[ ${f4(res.sumResidualSq)} / ${res.n - 2} ] = √${f4(res.sumResidualSq / (res.n - 2))}` },
             ]}
@@ -562,15 +563,16 @@ function IntervalsPanel({ res, alpha }: { res: RegressionResult; alpha: number }
       <Panel title={`Intervalo de Confianza para la Media de Y (${conf}%)`}>
         <div className="space-y-4">
           {/* Fórmula */}
-          <div className="bg-zinc-50 rounded-lg p-4 space-y-2">
-            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-2">Fórmula</p>
-            <div className="space-y-1 text-xs font-mono text-zinc-600 italic">
-              <p>ŷ ± t(α/2, n−2) · Sxy · √[ 1/n + (x₀ − x̄)² / Σ(x − x̄)² ]</p>
-              <p className="text-zinc-400 not-italic font-sans">
-                donde t({alpha}/2, {df}) = t({alpha/2}, {df}) = <span className="font-mono font-semibold text-zinc-700">{f4(tCrit)}</span>
-                &nbsp;·&nbsp; Sxy = {f2(sxy)} &nbsp;·&nbsp; n = {n} &nbsp;·&nbsp; x̄ = {f4(xMean)}
-              </p>
-            </div>
+          <div className="bg-zinc-50 rounded-lg p-4 space-y-3">
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Fórmula</p>
+            <MathDisplay
+              latex={`\\hat{y} \\pm t_{\\frac{\\alpha}{2},\\, n-2} \\cdot S_{xy} \\cdot \\sqrt{\\frac{1}{n} + \\frac{(x_0 - \\bar{x})^2}{\\sum(x - \\bar{x})^2}}`}
+              className="text-base"
+            />
+            <p className="text-xs text-zinc-400">
+              donde <span className="font-mono font-semibold text-zinc-700">t({alpha/2}, {df}) = {f4(tCrit)}</span>
+              &nbsp;·&nbsp; Sxy = {f2(sxy)} &nbsp;·&nbsp; n = {n} &nbsp;·&nbsp; x̄ = {f4(xMean)}
+            </p>
           </div>
 
           {/* Tabla */}
@@ -599,14 +601,15 @@ function IntervalsPanel({ res, alpha }: { res: RegressionResult; alpha: number }
       <Panel title={`Intervalo de Predicción para un Valor Individual de Y (${conf}%)`}>
         <div className="space-y-4">
           {/* Fórmula */}
-          <div className="bg-zinc-50 rounded-lg p-4 space-y-2">
-            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-2">Fórmula</p>
-            <div className="space-y-1 text-xs font-mono text-zinc-600 italic">
-              <p>ŷ ± t(α/2, n−2) · Sxy · √[ 1 + 1/n + (x₀ − x̄)² / Σ(x − x̄)² ]</p>
-              <p className="text-zinc-400 not-italic font-sans">
-                El intervalo de predicción es más amplio que el de confianza porque incluye la variabilidad individual.
-              </p>
-            </div>
+          <div className="bg-zinc-50 rounded-lg p-4 space-y-3">
+            <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Fórmula</p>
+            <MathDisplay
+              latex={`\\hat{y} \\pm t_{\\frac{\\alpha}{2},\\, n-2} \\cdot S_{xy} \\cdot \\sqrt{1 + \\frac{1}{n} + \\frac{(x_0 - \\bar{x})^2}{\\sum(x - \\bar{x})^2}}`}
+              className="text-base"
+            />
+            <p className="text-xs text-zinc-400">
+              El intervalo de predicción es más amplio porque incluye la variabilidad individual adicional.
+            </p>
           </div>
 
           {/* Tabla */}
@@ -890,17 +893,20 @@ function DataTable({
   )
 }
 
-function FormulaBlock({ steps }: { steps: { label: string; expr: string }[] }) {
+function FormulaBlock({ steps }: { steps: { label: string; expr?: string; latex?: string }[] }) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       {steps.map((s, i) => (
-        <div key={i} className="flex gap-3 text-xs">
+        <div key={i} className="flex gap-3 items-center text-xs">
           {s.label && (
-            <span className="text-zinc-400 font-bold uppercase text-[10px] w-20 shrink-0 pt-0.5">
+            <span className="text-zinc-400 font-bold uppercase text-[10px] w-20 shrink-0">
               {s.label}
             </span>
           )}
-          <span className="font-mono text-zinc-600 italic">{s.expr}</span>
+          {s.latex
+            ? <MathDisplay latex={s.latex} className="text-sm" />
+            : <span className="font-mono text-zinc-600 italic">{s.expr ?? ''}</span>
+          }
         </div>
       ))}
     </div>
