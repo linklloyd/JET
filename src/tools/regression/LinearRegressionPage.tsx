@@ -531,7 +531,7 @@ function IntervalsPanel({ res, alpha }: { res: RegressionResult; alpha: number }
   const { n, xData, xMean, sumXDevSq, sxy, a, b } = res
   const df = n - 2
   const conf = (1 - alpha) * 100
-  const tCrit = r4(tInverse(1 - alpha / 2, df))
+  const tCrit = r2(tInverse(1 - alpha / 2, df))
   const a2 = r2(a), b2 = r2(b)
 
   const rows = xData.map((x, i) => {
