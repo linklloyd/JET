@@ -2,22 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { Plus, Trash2, Calculator, TrendingUp, Copy, ClipboardPaste } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { MathDisplay } from '../../components/ui/MathInput'
-import { tStudentCDF } from '../probability/distributions'
 import { useLocalStorage } from '../../hooks/useLocalStorage'
-
-// ─── Inverse t-distribution (binary search) ───────────────────────────────────
-// Returns t such that P(T ≤ t) = p, for given degrees of freedom df
-function tInverse(p: number, df: number): number {
-  if (p <= 0) return -Infinity
-  if (p >= 1) return Infinity
-  let lo = 0, hi = 50
-  for (let i = 0; i < 80; i++) {
-    const mid = (lo + hi) / 2
-    if (tStudentCDF(mid, df) < p) lo = mid
-    else hi = mid
-  }
-  return (lo + hi) / 2
-}
 
 // ─── Math helpers ─────────────────────────────────────────────────────────────
 
