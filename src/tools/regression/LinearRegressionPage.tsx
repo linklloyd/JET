@@ -517,22 +517,36 @@ function IntervalsPanel({ res }: { res: RegressionResult }) {
   const a2 = r2(a), b2 = r2(b)
 
   const rows = xData.map((x, i) => {
-    const yHat = r4(a2 + b2 * x)
-    const xDev = r4(x - xMean)
-    const inner  = r4(1 / n + (xDev ** 2) / sumXDevSq)
-    const innerP = r4(1 + 1 / n + (xDev ** 2) / sumXDevSq)
+    const yHat   = r4(a2 + b2 * x)
+    const xDev   = r4(x - xMean)
+    const xDevSq = r4(xDev ** 2)
 
-    const eIC = r4(t * sxy * Math.sqrt(inner))
-    const eIP = r4(t * sxy * Math.sqrt(innerP))
+    const inner   = r4(1 / n + xDevSq / sumXDevSq)
+    const sqrtIC  = r4(Math.sqrt(inner))
+    const eIC     = r4(t * sxy * sqrtIC)
+
+    const innerP  = r4(1 + 1 / n + xDevSq / sumXDevSq)
+    const sqrtIP  = r4(Math.sqrt(innerP))
+    const eIP     = r4(t * sxy * sqrtIP)
 
     return {
-      i: i + 1, x, yHat,
-      icLI: r4(yHat - eIC), icLS: r4(yHat + eIC), eIC,
-      ipLI: r4(yHat - eIP), ipLS: r4(yHat + eIP), eIP,
+      i: i + 1, x, yHat, xDevSq,
+      inner, sqrtIC, eIC,
+      icLI: r4(yHat - eIC), icLS: r4(yHat + eIC),
+      innerP, sqrtIP, eIP,
+      ipLI: r4(yHat - eIP), ipLS: r4(yHat + eIP),
     }
   })
 
   const tLabel = <span className="font-mono font-semibold text-zinc-700">{f2(t)}</span>
+
+  const FormulaInfo = () => (
+    <p className="text-xs text-zinc-400">
+      t = {tLabel}
+      &nbsp;·&nbsp; S<sub>xy</sub> = {f2(sxy)} &nbsp;·&nbsp; n = {n} &nbsp;·&nbsp; x̄ = {f4(xMean)}
+      &nbsp;·&nbsp; Σ(x−x̄)² = {f4(sumXDevSq)}
+    </p>
+  )
 
   return (
     <div className="space-y-6">
@@ -546,17 +560,18 @@ function IntervalsPanel({ res }: { res: RegressionResult }) {
               latex={`\\hat{y} \\pm t \\cdot S_{xy} \\cdot \\sqrt{\\frac{1}{n} + \\frac{(x_0 - \\bar{x})^2}{\\sum(x - \\bar{x})^2}}`}
               className="text-base"
             />
-            <p className="text-xs text-zinc-400">
-              t = {tLabel}
-              &nbsp;·&nbsp; S<sub>xy</sub> = {f2(sxy)} &nbsp;·&nbsp; n = {n} &nbsp;·&nbsp; x̄ = {f4(xMean)}
-            </p>
+            <FormulaInfo />
           </div>
 
           <DataTable
-            headers={['i', 'x₀', 'ŷ', 'Margen', 'LI', 'LS']}
-            rows={rows.map(r => [r.i, r.x, f4(r.yHat), f4(r.eIC), f4(r.icLI), f4(r.icLS)])}
+            headers={['i', 'x₀', 'ŷ', '(x₀−x̄)²', 'Interior raíz', '√Interior', 't·Sxy·√', 'LI (ŷ−)', 'LS (ŷ+)']}
+            rows={rows.map(r => [
+              r.i, r.x, f4(r.yHat), f4(r.xDevSq),
+              f4(r.inner), f4(r.sqrtIC), f4(r.eIC),
+              f4(r.icLI), f4(r.icLS),
+            ])}
             sumRow={null}
-            colColors={['zinc', 'blue', 'purple', 'amber', 'emerald', 'emerald']}
+            colColors={['zinc', 'blue', 'purple', 'zinc', 'zinc', 'zinc', 'amber', 'emerald', 'emerald']}
           />
 
           <div className="space-y-2">
@@ -565,8 +580,9 @@ function IntervalsPanel({ res }: { res: RegressionResult }) {
               <div key={r.i} className="text-xs text-zinc-600 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2">
                 <span className="font-semibold text-emerald-800">x₀ = {r.x}:</span>{' '}
                 El <span className="font-semibold">promedio de Y</span> cuando X = {r.x} se
-                encuentra entre <span className="font-mono font-semibold">{f4(r.icLI)}</span> y{' '}
-                <span className="font-mono font-semibold">{f4(r.icLS)}</span>.
+                encuentra entre{' '}
+                <span className="font-mono font-semibold">ŷ − = {f4(r.icLI)}</span>{' '}y{' '}
+                <span className="font-mono font-semibold">ŷ + = {f4(r.icLS)}</span>.
               </div>
             ))}
           </div>
@@ -582,17 +598,18 @@ function IntervalsPanel({ res }: { res: RegressionResult }) {
               latex={`\\hat{y} \\pm t \\cdot S_{xy} \\cdot \\sqrt{1 + \\frac{1}{n} + \\frac{(x_0 - \\bar{x})^2}{\\sum(x - \\bar{x})^2}}`}
               className="text-base"
             />
-            <p className="text-xs text-zinc-400">
-              t = {tLabel}
-              &nbsp;·&nbsp; S<sub>xy</sub> = {f2(sxy)} &nbsp;·&nbsp; n = {n} &nbsp;·&nbsp; x̄ = {f4(xMean)}
-            </p>
+            <FormulaInfo />
           </div>
 
           <DataTable
-            headers={['i', 'x₀', 'ŷ', 'Margen', 'LI', 'LS']}
-            rows={rows.map(r => [r.i, r.x, f4(r.yHat), f4(r.eIP), f4(r.ipLI), f4(r.ipLS)])}
+            headers={['i', 'x₀', 'ŷ', '(x₀−x̄)²', 'Interior raíz', '√Interior', 't·Sxy·√', 'LI (ŷ−)', 'LS (ŷ+)']}
+            rows={rows.map(r => [
+              r.i, r.x, f4(r.yHat), f4(r.xDevSq),
+              f4(r.innerP), f4(r.sqrtIP), f4(r.eIP),
+              f4(r.ipLI), f4(r.ipLS),
+            ])}
             sumRow={null}
-            colColors={['zinc', 'blue', 'purple', 'amber', 'blue', 'blue']}
+            colColors={['zinc', 'blue', 'purple', 'zinc', 'zinc', 'zinc', 'amber', 'blue', 'blue']}
           />
 
           <div className="space-y-2">
@@ -601,8 +618,9 @@ function IntervalsPanel({ res }: { res: RegressionResult }) {
               <div key={r.i} className="text-xs text-zinc-600 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2">
                 <span className="font-semibold text-blue-800">x₀ = {r.x}:</span>{' '}
                 Un <span className="font-semibold">valor individual de Y</span> cuando X = {r.x} se
-                encontrará entre <span className="font-mono font-semibold">{f4(r.ipLI)}</span> y{' '}
-                <span className="font-mono font-semibold">{f4(r.ipLS)}</span>.
+                encontrará entre{' '}
+                <span className="font-mono font-semibold">ŷ − = {f4(r.ipLI)}</span>{' '}y{' '}
+                <span className="font-mono font-semibold">ŷ + = {f4(r.ipLS)}</span>.
               </div>
             ))}
           </div>
