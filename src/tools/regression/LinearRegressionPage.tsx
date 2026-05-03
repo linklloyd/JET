@@ -302,7 +302,9 @@ function Results({ res }: { res: RegressionResult }) {
             ]}
           />
           <ResultBadge label="r =" value={f2(res.r)} color="purple" />
-          <p className="text-xs text-zinc-500">{interpretR(res.r)}</p>
+          <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-lg px-4 py-2">
+            <span className="text-sm font-semibold text-purple-800">{interpretR(res.r)}</span>
+          </div>
         </div>
       </Panel>
 
@@ -367,18 +369,18 @@ function Results({ res }: { res: RegressionResult }) {
             </p>
           </div>
 
-          {/* Tabla de valores estimados */}
+          {/* Fórmula de estimación */}
           <div>
-            <p className="text-xs font-semibold text-zinc-600 mb-2">Valores estimados ŷ</p>
+            <p className="text-xs font-semibold text-zinc-600 mb-2">Fórmula de estimación</p>
             <DataTable
-              headers={['i', 'x', 'y', 'ŷ = a + b(x)', 'y − ŷ']}
+              headers={['i', 'x', 'Sustitución', 'ŷ']}
               rows={res.xData.map((x, i) => {
-                const yHat = r4(res.a + res.b * x)
-                const residual = r4(res.yData[i] - yHat)
-                return [i + 1, x, res.yData[i], f4(yHat), f4(residual)]
+                const yHat = r4(r2(res.a) + r2(res.b) * x)
+                const subs = `${f2(res.a)} + ${f2(res.b)}(${x})`
+                return [i + 1, x, subs, f4(yHat)]
               })}
               sumRow={null}
-              colColors={['zinc', 'blue', 'emerald', 'purple', 'amber']}
+              colColors={['zinc', 'blue', 'zinc', 'purple']}
             />
           </div>
         </div>
