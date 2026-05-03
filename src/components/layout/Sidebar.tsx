@@ -43,6 +43,7 @@ import {
   Scissors,
   Replace,
   Split,
+  TrendingUp,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { HistoryPanel } from '../ui/HistoryPanel'
@@ -110,6 +111,11 @@ const defaultSections: Section[] = [
           { path: '/integrals/substitution', label: 'Substitution', icon: Replace },
           { path: '/integrals/partial-fractions', label: 'Partial Fractions', icon: Split },
         ],
+      },
+      {
+        path: '/regression',
+        label: 'Reg. Lineal',
+        icon: TrendingUp,
       },
     ],
   },

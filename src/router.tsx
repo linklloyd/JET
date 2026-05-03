@@ -29,6 +29,7 @@ import { lazy, Suspense } from 'react'
 
 const EarthboundBGPage = lazy(() => import('./tools/earthbound-bg/EarthboundBGPage').then(m => ({ default: m.EarthboundBGPage })))
 import { IntegralsPage } from './tools/integrals/IntegralsPage'
+import { LinearRegressionPage } from './tools/regression/LinearRegressionPage'
 
 function ErrorPage() {
   const error = useRouteError()
@@ -87,6 +88,7 @@ export const router = createBrowserRouter([
       { path: 'matrices/:opType', element: <MatricesPage /> },
       { path: 'integrals', element: <Navigate to="/integrals/indefinite" replace /> },
       { path: 'integrals/:method', element: <IntegralsPage /> },
+      { path: 'regression', element: <LinearRegressionPage /> },
       { path: 'pipeline', element: <PipelinePage /> },
       { path: 'video-to-gif', element: <VideoToGifPage /> },
       { path: 'audio-waveform', element: <AudioWaveformPage /> },
