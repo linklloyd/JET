@@ -533,9 +533,9 @@ function IntervalsPanel({ res }: { res: RegressionResult }) {
     return {
       i: i + 1, x, yHat, xDevSq,
       inner, sqrtIC, eIC,
-      icLI: r4(yHat - eIC), icLS: r4(yHat + eIC),
+      icLI: r2(yHat - eIC), icLS: r2(yHat + eIC),
       innerP, sqrtIP, eIP,
-      ipLI: r4(yHat - eIP), ipLS: r4(yHat + eIP),
+      ipLI: r2(yHat - eIP), ipLS: r2(yHat + eIP),
     }
   })
 
@@ -571,7 +571,7 @@ function IntervalsPanel({ res }: { res: RegressionResult }) {
               f4(r.inner),
               f4(r.sqrtIC),
               f4(r.eIC),
-              f4(r.icLI), f4(r.icLS),
+              f2(r.icLI), f2(r.icLS),
             ])}
             sumRow={null}
             colColors={['zinc', 'blue', 'purple', 'zinc', 'zinc', 'zinc', 'amber', 'emerald', 'emerald']}
@@ -611,7 +611,7 @@ function IntervalsPanel({ res }: { res: RegressionResult }) {
               f4(r.innerP),
               f4(r.sqrtIP),
               f4(r.eIP),
-              f4(r.ipLI), f4(r.ipLS),
+              f2(r.ipLI), f2(r.ipLS),
             ])}
             sumRow={null}
             colColors={['zinc', 'blue', 'purple', 'zinc', 'zinc', 'zinc', 'amber', 'blue', 'blue']}
