@@ -108,7 +108,7 @@ function computeRegression(rows: DataRow[]): RegressionResult | null {
   const r = r2(rRaw)
   const t = r2(rRaw * Math.sqrt(n - 2) / Math.sqrt(1 - rRaw ** 2))
 
-  const b = r4(sumCross / sumXDevSq)
+  const b = r4(r * (Math.sqrt(yVariance) / Math.sqrt(xVariance)))
   const bFinal = r2(b)
   const a = r4(yMean - bFinal * xMean)
   const a2 = r2(a), b2 = r2(b)
@@ -430,8 +430,9 @@ function Results({ res }: { res: RegressionResult }) {
               <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Pendiente b</p>
               <FormulaBlock
                 steps={[
-                  { label: 'Fórmula', latex: 'b = \\frac{\\sum(x - \\bar{x})(y - \\bar{y})}{\\sum(x - \\bar{x})^2}' },
-                  { label: 'Sustitución', expr: `b = ${f4(res.sumCross)} / ${f4(res.sumXDevSq)}` },
+                  { label: 'Fórmula', latex: 'b = r \\cdot \\frac{S_y}{S_x}' },
+                  { label: 'Sustitución', expr: `b = ${f2(res.r)} · (${f2(res.yStdDev)} / ${f2(res.xStdDev)})` },
+                  { label: '', expr: `b = ${f2(res.r)} · ${f4(res.yStdDev / res.xStdDev)}` },
                 ]}
               />
               <ResultBadge label="b =" value={f2(res.b)} color="blue" />
