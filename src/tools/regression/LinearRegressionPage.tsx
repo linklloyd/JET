@@ -104,7 +104,7 @@ function computeRegression(rows: DataRow[]): RegressionResult | null {
   const xStdDev = r2(Math.sqrt(xVariance))
   const yStdDev = r2(Math.sqrt(yVariance))
 
-  const rRaw = sumCross / Math.sqrt(sumXDevSq * sumYDevSq)
+  const rRaw = sumCross / ((n - 1) * Math.sqrt(xVariance) * Math.sqrt(yVariance))
   const r = r2(rRaw)
   const t = r2(rRaw * Math.sqrt(n - 2) / Math.sqrt(1 - rRaw ** 2))
 
@@ -378,15 +378,15 @@ function Results({ res }: { res: RegressionResult }) {
             steps={[
               {
                 label: 'Fórmula',
-                latex: 'r = \\frac{\\sum(x - \\bar{x})(y - \\bar{y})}{\\sqrt{\\sum(x - \\bar{x})^2 \\cdot \\sum(y - \\bar{y})^2}}',
+                latex: 'r = \\frac{\\sum(x - \\bar{x})(y - \\bar{y})}{(n-1) \\cdot S_x \\cdot S_y}',
               },
               {
                 label: 'Sustitución',
-                expr: `r = ${f4(res.sumCross)} / √[ ${f4(res.sumXDevSq)} · ${f4(res.sumYDevSq)} ]`,
+                expr: `r = ${f4(res.sumCross)} / (${res.n - 1} · ${f2(res.xStdDev)} · ${f2(res.yStdDev)})`,
               },
               {
-                label: 'Raíz',
-                expr: `√[ ${f4(res.sumXDevSq * res.sumYDevSq)} ] = ${f4(Math.sqrt(res.sumXDevSq * res.sumYDevSq))}`,
+                label: '',
+                expr: `r = ${f4(res.sumCross)} / ${f4((res.n - 1) * res.xStdDev * res.yStdDev)}`,
               },
             ]}
           />
