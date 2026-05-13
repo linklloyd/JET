@@ -379,16 +379,17 @@ function Results({ res }: { res: SamplingResult }) {
             <MathDisplay latex={`\\binom{N}{n} = \\binom{${res.N}}{${res.n}} = \\frac{${res.N}!}{${res.n}!(${res.N}-${res.n})!} = ${res.numSamples}`} className="text-sm" />
           </div>
           <STable
-            headers={['#', 'Muestra', 'Valores', 'Σ', 'x̄']}
+            headers={['#', 'Muestra', 'Valores', 'Σ', 'x̄', 'x̄ − μ']}
             rows={res.samples.map(s => [
               s.id,
               `{${s.labels.join(', ')}}`,
               s.values.join(', '),
               f4(s.sum),
               f4(s.mean),
+              f4(rnd(s.mean - res.mu, 4)),
             ])}
             sumRow={null}
-            colColors={['zinc', 'blue', 'zinc', 'zinc', 'purple']}
+            colColors={['zinc', 'blue', 'zinc', 'zinc', 'purple', 'amber']}
           />
         </div>
       </Panel>
