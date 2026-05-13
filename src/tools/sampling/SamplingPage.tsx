@@ -10,9 +10,7 @@ function rnd(x: number, dec: number): number {
   return Number(Math.round(Number(x + 'e' + dec)) + 'e-' + dec)
 }
 function r4(x: number) { return rnd(x, 4) }
-function r2(x: number) { return rnd(x, 2) }
 function f4(x: number): string { return parseFloat(rnd(x, 4).toFixed(4)).toString() }
-function f2(x: number): string { return parseFloat(rnd(x, 2).toFixed(2)).toString() }
 
 // ─── Combinations ─────────────────────────────────────────────────────────────
 
