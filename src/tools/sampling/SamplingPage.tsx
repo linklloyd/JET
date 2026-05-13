@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Trash2, Calculator, BarChart2 } from 'lucide-react'
+import { Plus, Trash2, Calculator, BarChart2, Copy, ClipboardPaste } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { MathDisplay } from '../../components/ui/MathInput'
 import { useLocalStorage } from '../../hooks/useLocalStorage'
@@ -129,6 +129,55 @@ function computeSampling(rows: PopRow[], n: number): SamplingResult | null {
 
 const EMPTY_ROWS: PopRow[] = Array.from({ length: 5 }, () => ({ label: '', value: '' }))
 
+// ─── Copy / Paste buttons ─────────────────────────────────────────────────────
+
+function DataCopyPaste({ rows, onPaste }: {
+  rows: PopRow[]
+  onPaste: (rows: PopRow[]) => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    const text = rows
+      .filter(r => r.label.trim() !== '' || r.value.trim() !== '')
+      .map(r => `${r.label}\t${r.value}`)
+      .join('\n')
+    await navigator.clipboard.writeText(text)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      const parsed: PopRow[] = text.trim().split('\n')
+        .filter(l => l.trim())
+        .flatMap(line => {
+          const parts = line.trim().split(/[\t,;]+/)
+          if (parts.length < 2) return []
+          return [{ label: parts[0].trim(), value: parts[1].trim() }]
+        })
+      if (parsed.length >= 2) onPaste(parsed)
+    } catch { /* clipboard permission denied */ }
+  }
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <button onClick={handleCopy}
+        className="p-1.5 rounded text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+        title="Copiar datos (Elemento Valor)">
+        <Copy size={13} />
+      </button>
+      <button onClick={handlePaste}
+        className="p-1.5 rounded text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+        title="Pegar datos desde Excel">
+        <ClipboardPaste size={13} />
+      </button>
+      {copied && <span className="text-[10px] text-green-600 font-medium ml-1">Copiado!</span>}
+    </div>
+  )
+}
+
 export function SamplingPage() {
   const [rows, setRows, savedAt] = useLocalStorage<PopRow[]>('jet-sampling-rows', EMPTY_ROWS)
   const [n, setN, nSavedAt] = useLocalStorage<number>('jet-sampling-n', 2)
@@ -186,9 +235,12 @@ export function SamplingPage() {
       <div className="bg-white border border-zinc-200 rounded-lg p-5">
         <div className="flex items-center justify-between mb-4">
           <p className="text-xs font-bold text-zinc-700 uppercase tracking-wide">Población</p>
-          <Button onClick={addRow} variant="secondary" size="sm">
-            <Plus size={13} /> Agregar elemento
-          </Button>
+          <div className="flex items-center gap-2">
+            <DataCopyPaste rows={rows} onPaste={setRows} />
+            <Button onClick={addRow} variant="secondary" size="sm">
+              <Plus size={13} /> Agregar elemento
+            </Button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
