@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Plus, Trash2, Calculator, BarChart2, Copy, ClipboardPaste } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { MathDisplay } from '../../components/ui/MathInput'
@@ -404,6 +404,9 @@ function Results({ res }: { res: SamplingResult }) {
             colColors={['purple', 'blue', 'emerald']}
           />
 
+          {/* Gráfica de frecuencias */}
+          <FreqChart dist={res.dist} mu={res.muXBar} />
+
           {/* Media de la distribución */}
           <div className="bg-zinc-50 rounded-lg p-4 space-y-2">
             <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-1">Media de la distribución muestral (μx̄)</p>
@@ -501,6 +504,83 @@ function STable({ headers, rows, sumRow, colColors }: {
       </table>
     </div>
   )
+}
+
+// ─── Frequency bar chart ──────────────────────────────────────────────────────
+
+function FreqChart({ dist, mu }: { dist: DistRow[]; mu: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const dpr = window.devicePixelRatio || 1
+    const W = canvas.clientWidth
+    const H = 240
+    canvas.width = W * dpr
+    canvas.height = H * dpr
+    canvas.style.height = `${H}px`
+    const ctx = canvas.getContext('2d')!
+    ctx.scale(dpr, dpr)
+    ctx.clearRect(0, 0, W, H)
+
+    const pad = { top: 20, right: 20, bottom: 44, left: 44 }
+    const cW = W - pad.left - pad.right
+    const cH = H - pad.top - pad.bottom
+
+    const maxFreq = Math.max(...dist.map(d => d.freq))
+    const barW = Math.max(20, Math.min(60, cW / dist.length - 8))
+
+    const cx = (_: number, i: number) => pad.left + (i + 0.5) * (cW / dist.length)
+    const cy = (f: number) => pad.top + cH - (f / maxFreq) * cH
+
+    // Grid lines
+    ctx.font = '10px ui-monospace, monospace'
+    for (let f = 1; f <= maxFreq; f++) {
+      const y = cy(f)
+      ctx.strokeStyle = '#e4e4e7'
+      ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke()
+      ctx.fillStyle = '#a1a1aa'
+      ctx.textAlign = 'right'
+      ctx.fillText(String(f), pad.left - 5, y + 3)
+    }
+
+    // Bars
+    dist.forEach((d, i) => {
+      const x = cx(0, i)
+      const barH = (d.freq / maxFreq) * cH
+      const y = pad.top + cH - barH
+
+      // Bar fill — highlight if mean matches μ
+      const isMode = rnd(d.mean, 4) === rnd(mu, 4)
+      ctx.fillStyle = isMode ? '#8b5cf6' : '#6366f1'
+      ctx.beginPath()
+      ctx.roundRect(x - barW / 2, y, barW, barH, [4, 4, 0, 0])
+      ctx.fill()
+
+      // x̄ label below
+      ctx.fillStyle = '#52525b'
+      ctx.textAlign = 'center'
+      ctx.font = '10px ui-monospace, monospace'
+      ctx.fillText(f4(d.mean), x, H - pad.bottom + 14)
+
+      // P(x̄) label on top of bar
+      ctx.fillStyle = '#3f3f46'
+      ctx.font = 'bold 10px ui-monospace, monospace'
+      ctx.fillText(f4(d.prob), x, y - 4)
+    })
+
+    // Axis label
+    ctx.fillStyle = '#71717a'
+    ctx.font = 'italic 11px Georgia, serif'
+    ctx.textAlign = 'center'
+    ctx.fillText('x̄', W / 2, H - 4)
+    ctx.textAlign = 'left'
+    ctx.fillText('f', pad.left - 36, pad.top + 4)
+  }, [dist, mu])
+
+  return <canvas ref={canvasRef} className="w-full rounded" style={{ height: 240 }} />
 }
 
 function ResultBadge({ label, value, color }: { label: string; value: string; color: ColColor }) {
