@@ -90,7 +90,7 @@ function computeSampling(rows: PopRow[], n: number): SamplingResult | null {
   }))
   const sumDevSq = r4(deviations.reduce((s, d) => s + d.devSq, 0))
   const popVariance = r4(sumDevSq / N)
-  const popStdDev = r4(Math.sqrt(popVariance))
+  const popStdDev = rnd(Math.sqrt(popVariance), 2)
 
   // All possible samples of size n
   const indices = popData.map((_, i) => i)
