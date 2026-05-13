@@ -44,6 +44,7 @@ import {
   Replace,
   Split,
   TrendingUp,
+  BarChart2,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { HistoryPanel } from '../ui/HistoryPanel'
@@ -116,6 +117,11 @@ const defaultSections: Section[] = [
         path: '/regression',
         label: 'Reg. Lineal',
         icon: TrendingUp,
+      },
+      {
+        path: '/sampling',
+        label: 'Dist. Muestral',
+        icon: BarChart2,
       },
     ],
   },
