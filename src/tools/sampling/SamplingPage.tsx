@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Plus, Trash2, Calculator, BarChart2 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { MathDisplay } from '../../components/ui/MathInput'
@@ -134,6 +134,13 @@ export function SamplingPage() {
   const [n, setN, nSavedAt] = useLocalStorage<number>('jet-sampling-n', 2)
   const [result, setResult] = useState<SamplingResult | null>(null)
   const [error, setError] = useState('')
+
+  // Auto-calcular al cargar si hay datos guardados
+  useEffect(() => {
+    const res = computeSampling(rows, n)
+    if (res) setResult(res)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const lastSaved = savedAt ?? nSavedAt
 
@@ -283,7 +290,7 @@ function Results({ res }: { res: SamplingResult }) {
           {/* Media poblacional */}
           <div className="bg-zinc-50 rounded-lg p-4 space-y-2">
             <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-1">Media poblacional (μ)</p>
-            <MathDisplay latex="\\mu = \\frac{\\sum x_i}{N}" className="text-sm" />
+            <MathDisplay latex={'\\mu = \\frac{\\sum x_i}{N}'} className="text-sm" />
             <p className="text-xs font-mono text-zinc-500 mt-1">
               μ = {f4(res.popSum)} / {res.N}
             </p>
@@ -294,7 +301,7 @@ function Results({ res }: { res: SamplingResult }) {
             {/* Varianza */}
             <div className="bg-zinc-50 rounded-lg p-4 space-y-2">
               <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-1">Varianza poblacional (σ²)</p>
-              <MathDisplay latex="\\sigma^2 = \\frac{\\sum(x_i - \\mu)^2}{N}" className="text-sm" />
+              <MathDisplay latex={'\\sigma^2 = \\frac{\\sum(x_i - \\mu)^2}{N}'} className="text-sm" />
               <p className="text-xs font-mono text-zinc-500 mt-1">
                 σ² = {f4(res.sumDevSq)} / {res.N}
               </p>
@@ -303,7 +310,7 @@ function Results({ res }: { res: SamplingResult }) {
             {/* Desv. estándar */}
             <div className="bg-zinc-50 rounded-lg p-4 space-y-2">
               <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-1">Desv. estándar poblacional (σ)</p>
-              <MathDisplay latex="\\sigma = \\sqrt{\\sigma^2}" className="text-sm" />
+              <MathDisplay latex={'\\sigma = \\sqrt{\\sigma^2}'} className="text-sm" />
               <p className="text-xs font-mono text-zinc-500 mt-1">
                 σ = √{f4(res.popVariance)}
               </p>
@@ -347,7 +354,7 @@ function Results({ res }: { res: SamplingResult }) {
           {/* Media de la distribución */}
           <div className="bg-zinc-50 rounded-lg p-4 space-y-2">
             <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide mb-1">Media de la distribución muestral (μx̄)</p>
-            <MathDisplay latex="\\mu_{\\bar{x}} = \\sum \\bar{x} \\cdot P(\\bar{x})" className="text-sm" />
+            <MathDisplay latex={'\\mu_{\\bar{x}} = \\sum \\bar{x} \\cdot P(\\bar{x})'} className="text-sm" />
             <p className="text-xs font-mono text-zinc-500 mt-1">
               μx̄ = {res.dist.map(d => `${f4(d.mean)}·${f4(d.prob)}`).join(' + ')}
             </p>
@@ -371,7 +378,7 @@ function Results({ res }: { res: SamplingResult }) {
           <div className="bg-zinc-50 rounded-lg p-4 space-y-3">
             <p className="text-xs font-bold text-zinc-500 uppercase tracking-wide">Fórmula (con corrección de población finita)</p>
             <MathDisplay
-              latex="\\sigma_{\\bar{x}} = \\frac{\\sigma}{\\sqrt{n}} \\cdot \\sqrt{\\frac{N-n}{N-1}}"
+              latex={'\\sigma_{\\bar{x}} = \\frac{\\sigma}{\\sqrt{n}} \\cdot \\sqrt{\\frac{N-n}{N-1}}'}
               className="text-sm"
             />
             <div className="text-xs font-mono text-zinc-500 space-y-1 mt-1">
