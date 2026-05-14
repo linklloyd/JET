@@ -405,7 +405,7 @@ function Results({ res }: { res: SamplingResult }) {
           />
 
           {/* Gráfica de frecuencias */}
-          <FreqChart dist={res.dist} mu={res.muXBar} />
+          <FreqChart dist={res.dist} />
 
           {/* Media de la distribución */}
           <div className="bg-zinc-50 rounded-lg p-4 space-y-2">
@@ -508,7 +508,7 @@ function STable({ headers, rows, sumRow, colColors }: {
 
 // ─── Frequency bar chart ──────────────────────────────────────────────────────
 
-function FreqChart({ dist, mu }: { dist: DistRow[]; mu: number }) {
+function FreqChart({ dist }: { dist: DistRow[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -516,7 +516,7 @@ function FreqChart({ dist, mu }: { dist: DistRow[]; mu: number }) {
     if (!canvas) return
     const dpr = window.devicePixelRatio || 1
     const W = canvas.clientWidth
-    const H = 240
+    const H = 260
     canvas.width = W * dpr
     canvas.height = H * dpr
     canvas.style.height = `${H}px`
@@ -524,63 +524,93 @@ function FreqChart({ dist, mu }: { dist: DistRow[]; mu: number }) {
     ctx.scale(dpr, dpr)
     ctx.clearRect(0, 0, W, H)
 
-    const pad = { top: 20, right: 20, bottom: 44, left: 44 }
+    const pad = { top: 24, right: 24, bottom: 48, left: 52 }
     const cW = W - pad.left - pad.right
     const cH = H - pad.top - pad.bottom
 
-    const maxFreq = Math.max(...dist.map(d => d.freq))
-    const barW = Math.max(20, Math.min(60, cW / dist.length - 8))
+    const maxProb = Math.max(...dist.map(d => d.prob))
+    // Round up to nearest 0.05 for y-axis max
+    const yMax = Math.ceil(maxProb / 0.05) * 0.05
 
-    const cx = (_: number, i: number) => pad.left + (i + 0.5) * (cW / dist.length)
-    const cy = (f: number) => pad.top + cH - (f / maxFreq) * cH
+    const cx = (_: number, i: number) =>
+      dist.length === 1
+        ? pad.left + cW / 2
+        : pad.left + (i / (dist.length - 1)) * cW
+    const cy = (p: number) => pad.top + cH - (p / yMax) * cH
 
-    // Grid lines
+    // Y grid lines — every 0.05
     ctx.font = '10px ui-monospace, monospace'
-    for (let f = 1; f <= maxFreq; f++) {
-      const y = cy(f)
+    for (let p = 0; p <= yMax + 0.001; p = Math.round((p + 0.05) * 100) / 100) {
+      const y = cy(p)
       ctx.strokeStyle = '#e4e4e7'
       ctx.lineWidth = 1
       ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(W - pad.right, y); ctx.stroke()
       ctx.fillStyle = '#a1a1aa'
       ctx.textAlign = 'right'
-      ctx.fillText(String(f), pad.left - 5, y + 3)
+      ctx.fillText(`${Math.round(p * 100)}%`, pad.left - 6, y + 3)
     }
 
-    // Bars
+    // Line connecting points
+    ctx.beginPath()
     dist.forEach((d, i) => {
-      const x = cx(0, i)
-      const barH = (d.freq / maxFreq) * cH
-      const y = pad.top + cH - barH
+      const x = cx(0, i), y = cy(d.prob)
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+    })
+    ctx.strokeStyle = '#6366f1'
+    ctx.lineWidth = 2.5
+    ctx.lineJoin = 'round'
+    ctx.stroke()
 
-      // Bar fill — highlight if mean matches μ
-      const isMode = rnd(d.mean, 4) === rnd(mu, 4)
-      ctx.fillStyle = isMode ? '#8b5cf6' : '#6366f1'
+    // Area fill under line
+    ctx.beginPath()
+    dist.forEach((d, i) => {
+      const x = cx(0, i), y = cy(d.prob)
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)
+    })
+    ctx.lineTo(cx(0, dist.length - 1), pad.top + cH)
+    ctx.lineTo(cx(0, 0), pad.top + cH)
+    ctx.closePath()
+    ctx.fillStyle = 'rgba(99,102,241,0.08)'
+    ctx.fill()
+
+    // Points + labels
+    dist.forEach((d, i) => {
+      const x = cx(0, i), y = cy(d.prob)
+
+      // Point
       ctx.beginPath()
-      ctx.roundRect(x - barW / 2, y, barW, barH, [4, 4, 0, 0])
+      ctx.arc(x, y, 5, 0, Math.PI * 2)
+      ctx.fillStyle = '#6366f1'
       ctx.fill()
+      ctx.strokeStyle = '#fff'
+      ctx.lineWidth = 2
+      ctx.stroke()
 
-      // x̄ label below
-      ctx.fillStyle = '#52525b'
-      ctx.textAlign = 'center'
-      ctx.font = '10px ui-monospace, monospace'
-      ctx.fillText(f4(d.mean), x, H - pad.bottom + 14)
-
-      // P(x̄) label on top of bar
+      // Percentage label above point
       ctx.fillStyle = '#3f3f46'
       ctx.font = 'bold 10px ui-monospace, monospace'
-      ctx.fillText(f4(d.prob), x, y - 4)
+      ctx.textAlign = 'center'
+      ctx.fillText(`${(d.prob * 100).toFixed(2)}%`, x, y - 10)
+
+      // x̄ label below axis
+      ctx.fillStyle = '#52525b'
+      ctx.font = '10px ui-monospace, monospace'
+      ctx.fillText(f4(d.mean), x, H - pad.bottom + 16)
     })
 
-    // Axis label
+    // Axis labels
     ctx.fillStyle = '#71717a'
     ctx.font = 'italic 11px Georgia, serif'
     ctx.textAlign = 'center'
     ctx.fillText('x̄', W / 2, H - 4)
-    ctx.textAlign = 'left'
-    ctx.fillText('f', pad.left - 36, pad.top + 4)
-  }, [dist, mu])
+    ctx.save()
+    ctx.translate(12, pad.top + cH / 2)
+    ctx.rotate(-Math.PI / 2)
+    ctx.fillText('P(x̄)', 0, 0)
+    ctx.restore()
+  }, [dist])
 
-  return <canvas ref={canvasRef} className="w-full rounded" style={{ height: 240 }} />
+  return <canvas ref={canvasRef} className="w-full rounded" style={{ height: 260 }} />
 }
 
 function ResultBadge({ label, value, color }: { label: string; value: string; color: ColColor }) {
