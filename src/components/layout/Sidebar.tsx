@@ -39,11 +39,8 @@ import {
   GripVertical,
   Eye,
   Star,
-  FunctionSquare,
-  Scissors,
-  Replace,
-  Split,
   TrendingUp,
+  Crop,
   BarChart2,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
@@ -102,18 +99,6 @@ const defaultSections: Section[] = [
         ],
       },
       {
-        path: '/integrals',
-        label: 'Integrals',
-        icon: FunctionSquare,
-        subtabs: [
-          { path: '/integrals/indefinite', label: 'Indefinite', icon: FunctionSquare },
-          { path: '/integrals/definite', label: 'Definite', icon: Hash },
-          { path: '/integrals/by-parts', label: 'By Parts', icon: Scissors },
-          { path: '/integrals/substitution', label: 'Substitution', icon: Replace },
-          { path: '/integrals/partial-fractions', label: 'Partial Fractions', icon: Split },
-        ],
-      },
-      {
         path: '/regression',
         label: 'Reg. Lineal',
         icon: TrendingUp,
@@ -137,6 +122,7 @@ const defaultSections: Section[] = [
   {
     title: 'Image Tools',
     tools: [
+      { path: '/image-crop', label: 'Image Crop', icon: Crop },
       { path: '/image-upscaler', label: 'Image Upscaler', icon: ZoomIn },
       { path: '/pixel-upscaler', label: 'Pixel Upscaler', icon: Maximize2 },
       { path: '/image-to-pixelart', label: 'Image to Pixel Art', icon: Grid2X2 },

@@ -28,9 +28,9 @@ import { GlitchLabPage } from './tools/glitch-lab/GlitchLabPage'
 import { lazy, Suspense } from 'react'
 
 const EarthboundBGPage = lazy(() => import('./tools/earthbound-bg/EarthboundBGPage').then(m => ({ default: m.EarthboundBGPage })))
-import { IntegralsPage } from './tools/integrals/IntegralsPage'
 import { LinearRegressionPage } from './tools/regression/LinearRegressionPage'
 import { SamplingPage } from './tools/sampling/SamplingPage'
+import { ImageCropPage } from './tools/image-crop/ImageCropPage'
 
 function ErrorPage() {
   const error = useRouteError()
@@ -87,9 +87,8 @@ export const router = createBrowserRouter([
       { path: 'probability/:distType', element: <ProbabilityPage /> },
       { path: 'matrices', element: <Navigate to="/matrices/multiplication" replace /> },
       { path: 'matrices/:opType', element: <MatricesPage /> },
-      { path: 'integrals', element: <Navigate to="/integrals/indefinite" replace /> },
-      { path: 'integrals/:method', element: <IntegralsPage /> },
       { path: 'regression', element: <LinearRegressionPage /> },
+      { path: 'image-crop', element: <ImageCropPage /> },
       { path: 'sampling', element: <SamplingPage /> },
       { path: 'pipeline', element: <PipelinePage /> },
       { path: 'video-to-gif', element: <VideoToGifPage /> },
